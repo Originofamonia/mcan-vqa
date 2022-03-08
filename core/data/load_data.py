@@ -12,69 +12,66 @@ import glob, json, torch, time
 import torch.utils.data as Data
 
 
-class DataSet(Data.Dataset):
-    def __init__(self, __C):
-        self.__C = __C
-
-
+class Dataset(Data.Dataset):
+    def __init__(self, opt):
+        self.opt = opt
         # --------------------------
         # ---- Raw data loading ----
         # --------------------------
 
         # Loading all image paths
-        # if self.__C.PRELOAD:
+        # if self.opt.preload:
         self.img_feat_path_list = []
-        split_list = __C.SPLIT[__C.RUN_MODE].split('+')
+        split_list = opt.split[opt.run_mode].split('+')
         for split in split_list:
             if split in ['train', 'val', 'test']:
-                self.img_feat_path_list += glob.glob(__C.IMG_FEAT_PATH[split] + '*.npz')
+                self.img_feat_path_list += glob.glob(opt.img_feat_path[split] + '*.npz')
 
-        # if __C.EVAL_EVERY_EPOCH and __C.RUN_MODE in ['train']:
-        #     self.img_feat_path_list += glob.glob(__C.IMG_FEAT_PATH['val'] + '*.npz')
+        # if __C.EVAL_EVERY_EPOCH and __C.run_mode in ['train']:
+        #     self.img_feat_path_list += glob.glob(__C.img_feat_path['val'] + '*.npz')
 
         # else:
         #     self.img_feat_path_list = \
-        #         glob.glob(__C.IMG_FEAT_PATH['train'] + '*.npz') + \
-        #         glob.glob(__C.IMG_FEAT_PATH['val'] + '*.npz') + \
-        #         glob.glob(__C.IMG_FEAT_PATH['test'] + '*.npz')
+        #         glob.glob(__C.img_feat_path['train'] + '*.npz') + \
+        #         glob.glob(__C.img_feat_path['val'] + '*.npz') + \
+        #         glob.glob(__C.img_feat_path['test'] + '*.npz')
 
         # Loading question word list
         self.stat_ques_list = \
-            json.load(open(__C.QUESTION_PATH['train'], 'r'))['questions'] + \
-            json.load(open(__C.QUESTION_PATH['val'], 'r'))['questions'] + \
-            json.load(open(__C.QUESTION_PATH['test'], 'r'))['questions'] + \
-            json.load(open(__C.QUESTION_PATH['vg'], 'r'))['questions']
+            json.load(open(opt.question_path['train'], 'r'))['questions'] + \
+            json.load(open(opt.question_path['val'], 'r'))['questions'] + \
+            json.load(open(opt.question_path['test'], 'r'))['questions'] + \
+            json.load(open(opt.question_path['vg'], 'r'))['questions']
 
         # Loading answer word list
         # self.stat_ans_list = \
-        #     json.load(open(__C.ANSWER_PATH['train'], 'r'))['annotations'] + \
-        #     json.load(open(__C.ANSWER_PATH['val'], 'r'))['annotations']
+        #     json.load(open(__C.answer_path['train'], 'r'))['annotations'] + \
+        #     json.load(open(__C.answer_path['val'], 'r'))['annotations']
 
         # Loading question and answer list
         self.ques_list = []
         self.ans_list = []
 
-        split_list = __C.SPLIT[__C.RUN_MODE].split('+')
+        split_list = opt.split[opt.run_mode].split('+')
         for split in split_list:
-            self.ques_list += json.load(open(__C.QUESTION_PATH[split], 'r'))['questions']
-            if __C.RUN_MODE in ['train']:
-                self.ans_list += json.load(open(__C.ANSWER_PATH[split], 'r'))['annotations']
+            self.ques_list += json.load(open(opt.question_path[split], 'r'))['questions']
+            if opt.run_mode in ['train']:
+                self.ans_list += json.load(open(opt.answer_path[split], 'r'))['annotations']
 
         # Define run data size
-        if __C.RUN_MODE in ['train']:
+        if opt.run_mode in ['train']:
             self.data_size = self.ans_list.__len__()
         else:
             self.data_size = self.ques_list.__len__()
 
         print('== Dataset size:', self.data_size)
 
-
         # ------------------------
         # ---- Data statistic ----
         # ------------------------
 
         # {image id} -> {image feature absolutely path}
-        if self.__C.PRELOAD:
+        if self.opt.preload:
             print('==== Pre-Loading features ...')
             time_start = time.time()
             self.iid_to_img_feat = img_feat_load(self.img_feat_path_list)
@@ -87,7 +84,7 @@ class DataSet(Data.Dataset):
         self.qid_to_ques = ques_load(self.ques_list)
 
         # Tokenize
-        self.token_to_ix, self.pretrained_emb = tokenize(self.stat_ques_list, __C.USE_GLOVE)
+        self.token_to_ix, self.pretrained_emb = tokenize(self.stat_ques_list, opt.use_glove)
         self.token_size = self.token_to_ix.__len__()
         print('== Question token vocab size:', self.token_size)
 
@@ -116,21 +113,21 @@ class DataSet(Data.Dataset):
         ans_iter = np.zeros(1)
 
         # Process ['train'] and ['val', 'test'] respectively
-        if self.__C.RUN_MODE in ['train']:
+        if self.opt.run_mode in ['train']:
             # Load the run data from list
             ans = self.ans_list[idx]
             ques = self.qid_to_ques[str(ans['question_id'])]
 
             # Process image feature from (.npz) file
-            if self.__C.PRELOAD:
+            if self.opt.preload:
                 img_feat_x = self.iid_to_img_feat[str(ans['image_id'])]
             else:
                 img_feat = np.load(self.iid_to_img_feat_path[str(ans['image_id'])])
                 img_feat_x = img_feat['x'].transpose((1, 0))
-            img_feat_iter = proc_img_feat(img_feat_x, self.__C.IMG_FEAT_PAD_SIZE)
+            img_feat_iter = proc_img_feat(img_feat_x, self.opt.img_feat_pad_size)
 
             # Process question
-            ques_ix_iter = proc_ques(ques, self.token_to_ix, self.__C.MAX_TOKEN)
+            ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
 
             # Process answer
             ans_iter = proc_ans(ans, self.ans_to_ix)
@@ -143,15 +140,15 @@ class DataSet(Data.Dataset):
             # img_feat = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
             # img_feat_x = img_feat['x'].transpose((1, 0))
             # Process image feature from (.npz) file
-            if self.__C.PRELOAD:
+            if self.opt.preload:
                 img_feat_x = self.iid_to_img_feat[str(ques['image_id'])]
             else:
                 img_feat = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
                 img_feat_x = img_feat['x'].transpose((1, 0))
-            img_feat_iter = proc_img_feat(img_feat_x, self.__C.IMG_FEAT_PAD_SIZE)
+            img_feat_iter = proc_img_feat(img_feat_x, self.opt.img_feat_pad_size)
 
             # Process question
-            ques_ix_iter = proc_ques(ques, self.token_to_ix, self.__C.MAX_TOKEN)
+            ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
 
 
         return torch.from_numpy(img_feat_iter), \
@@ -161,5 +158,3 @@ class DataSet(Data.Dataset):
 
     def __len__(self):
         return self.data_size
-
-

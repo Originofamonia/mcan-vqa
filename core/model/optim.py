@@ -49,20 +49,20 @@ class WarmupOptimizer(object):
         return r
 
 
-def get_optim(__C, model, data_size, lr_base=None):
+def get_optim(opt, model, data_size, lr_base=None):
     if lr_base is None:
-        lr_base = __C.LR_BASE
+        lr_base = opt.lr_base
 
     return WarmupOptimizer(
         lr_base,
         Optim.Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=0,
-            betas=__C.OPT_BETAS,
-            eps=__C.OPT_EPS
+            betas=opt.opt_betas,
+            eps=opt.opt_eps
         ),
         data_size,
-        __C.BATCH_SIZE
+        opt.batch_size
     )
 
 

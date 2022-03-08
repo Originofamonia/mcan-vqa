@@ -18,10 +18,10 @@ class Cfgs(PATH):
 
         # Set Devices
         # If use multi-gpu training, set e.g.'0, 1, 2' instead
-        self.GPU = '0'
+        self.gpu = '0,1'
 
         # Set RNG For CPU And GPUs
-        self.SEED = random.randint(0, 99999999)
+        self.seed = random.randint(0, 99999999)
 
         # -------------------------
         # ---- Version Control ----
@@ -29,89 +29,88 @@ class Cfgs(PATH):
 
         # Define a specific name to start new training
         # self.VERSION = 'Anonymous_' + str(self.SEED)
-        self.VERSION = str(self.SEED)
+        self.version = str(self.seed)
 
         # Resume training
-        self.RESUME = False
+        self.resume = False
 
         # Used in Resume training and testing
-        self.CKPT_VERSION = self.VERSION
-        self.CKPT_EPOCH = 0
+        self.ckpt_version = self.version
+        self.ckpt_epoch = 0
 
         # Absolutely checkpoint path, 'CKPT_VERSION' and 'CKPT_EPOCH' will be overridden
-        self.CKPT_PATH = None
+        self.ckpt_path = None
 
         # Print loss every step
-        self.VERBOSE = True
-
+        self.verbose = True
 
         # ------------------------------
         # ---- Data Provider Params ----
         # ------------------------------
 
         # {'train', 'val', 'test'}
-        self.RUN_MODE = 'train'
+        self.run_mode = 'train'
 
         # Set True to evaluate offline
-        self.EVAL_EVERY_EPOCH = True
+        self.eval_every_epoch = True
 
         # Set True to save the prediction vector (Ensemble)
-        self.TEST_SAVE_PRED = False
+        self.test_save_pred = False
 
         # Pre-load the features into memory to increase the I/O speed
-        self.PRELOAD = False
+        self.preload = False
 
         # Define the 'train' 'val' 'test' data split
         # (EVAL_EVERY_EPOCH triggered when set {'train': 'train'})
-        self.SPLIT = {
+        self.split = {
             'train': '',
             'val': 'val',
             'test': 'test',
         }
 
         # A external method to set train split
-        self.TRAIN_SPLIT = 'train+val+vg'
+        self.train_split = 'train+val+vg'
 
         # Set True to use pretrained word embedding
         # (GloVe: spaCy https://spacy.io/)
-        self.USE_GLOVE = True
+        self.use_glove = True
 
         # Word embedding matrix size
         # (token size x WORD_EMBED_SIZE)
-        self.WORD_EMBED_SIZE = 300
+        self.word_embed_size = 300
 
         # Max length of question sentences
-        self.MAX_TOKEN = 14
+        self.max_token = 14
 
         # Filter the answer by occurrence
         # self.ANS_FREQ = 8
 
         # Max length of extracted faster-rcnn 2048D features
         # (bottom-up and Top-down: https://github.com/peteanderson80/bottom-up-attention)
-        self.IMG_FEAT_PAD_SIZE = 100
+        self.img_feat_pad_size = 100
 
         # Faster-rcnn 2048D features
-        self.IMG_FEAT_SIZE = 2048
+        self.img_feat_size = 2048
 
         # Default training batch size: 64
-        self.BATCH_SIZE = 64
+        self.batch_size = 64
 
         # Multi-thread I/O
-        self.NUM_WORKERS = 8
+        self.num_workers = 4
 
         # Use pin memory
         # (Warning: pin memory can accelerate GPU loading but may
         # increase the CPU memory usage when NUM_WORKS is large)
-        self.PIN_MEM = True
+        self.pin_mem = True
 
         # Large model can not training with batch size 64
         # Gradient accumulate can split batch to reduce gpu memory usage
         # (Warning: BATCH_SIZE should be divided by GRAD_ACCU_STEPS)
-        self.GRAD_ACCU_STEPS = 1
+        self.grad_accu_steps = 1
 
         # Set 'external': use external shuffle method to implement training shuffle
         # Set 'internal': use pytorch dataloader default shuffle method
-        self.SHUFFLE_MODE = 'external'
+        self.shuffle_mode = 'external'
 
 
         # ------------------------
@@ -120,26 +119,26 @@ class Cfgs(PATH):
 
         # Model deeps
         # (Encoder and Decoder will be same deeps)
-        self.LAYER = 6
+        self.layer = 6
 
         # Model hidden size
         # (512 as default, bigger will be a sharp increase of gpu memory usage)
-        self.HIDDEN_SIZE = 512
+        self.hidden_size = 512
 
         # Multi-head number in MCA layers
         # (Warning: HIDDEN_SIZE should be divided by MULTI_HEAD)
-        self.MULTI_HEAD = 8
+        self.multi_head = 8
 
         # Dropout rate for all dropout layers
         # (dropout can prevent overfitting： [Dropout: a simple way to prevent neural networks from overfitting])
-        self.DROPOUT_R = 0.1
+        self.dropout_rate = 0.1
 
         # MLP size in flatten layers
-        self.FLAT_MLP_SIZE = 512
+        self.flat_mlp_size = 512
 
         # Flatten the last hidden to vector with {n} attention glimpses
-        self.FLAT_GLIMPSES = 1
-        self.FLAT_OUT_SIZE = 1024
+        self.flat_glimpses = 1
+        self.flat_out_size = 1024
 
 
         # --------------------------
@@ -147,24 +146,24 @@ class Cfgs(PATH):
         # --------------------------
 
         # The base learning rate
-        self.LR_BASE = 0.0001
+        self.lr_base = 1e-4
 
         # Learning rate decay ratio
-        self.LR_DECAY_R = 0.2
+        self.lr_decay_rate = 0.2
 
         # Learning rate decay at {x, y, z...} epoch
-        self.LR_DECAY_LIST = [10, 12]
+        self.lr_decay_list = [10, 12]
 
         # Max training epoch
-        self.MAX_EPOCH = 13
+        self.max_epoch = 13
 
         # Gradient clip
         # (default: -1 means not using)
-        self.GRAD_NORM_CLIP = -1
+        self.grad_norm_clip = -1
 
         # Adam optimizer betas and eps
-        self.OPT_BETAS = (0.9, 0.98)
-        self.OPT_EPS = 1e-9
+        self.opt_betas = (0.9, 0.98)
+        self.opt_eps = 1e-9
 
 
     def parse_to_dict(self, args):
@@ -183,60 +182,63 @@ class Cfgs(PATH):
 
 
     def proc(self):
-        assert self.RUN_MODE in ['train', 'val', 'test']
+        """
+        set args
+        """
+        assert self.run_mode in ['train', 'val', 'test']
 
         # ------------ Devices setup
-        os.environ['CUDA_VISIBLE_DEVICES'] = self.GPU
-        self.N_GPU = len(self.GPU.split(','))
-        self.DEVICES = [_ for _ in range(self.N_GPU)]
-        torch.set_num_threads(2)
+        os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
+        self.n_gpu = len(self.gpu.split(','))
+        self.devices = [_ for _ in range(self.n_gpu)]
+        # torch.set_num_threads(2)
 
 
         # ------------ Seed setup
         # fix pytorch seed
-        torch.manual_seed(self.SEED)
-        if self.N_GPU < 2:
-            torch.cuda.manual_seed(self.SEED)
+        torch.manual_seed(self.seed)
+        if self.n_gpu < 2:
+            torch.cuda.manual_seed(self.seed)
         else:
-            torch.cuda.manual_seed_all(self.SEED)
+            torch.cuda.manual_seed_all(self.seed)
         torch.backends.cudnn.deterministic = True
 
         # fix numpy seed
-        np.random.seed(self.SEED)
+        np.random.seed(self.seed)
 
         # fix random seed
-        random.seed(self.SEED)
+        random.seed(self.seed)
 
-        if self.CKPT_PATH is not None:
+        if self.ckpt_path is not None:
             print('Warning: you are now using CKPT_PATH args, '
                   'CKPT_VERSION and CKPT_EPOCH will not work')
-            self.CKPT_VERSION = self.CKPT_PATH.split('/')[-1] + '_' + str(random.randint(0, 99999999))
+            self.ckpt_version = self.ckpt_path.split('/')[-1] + '_' + str(random.randint(0, 99999999))
 
 
         # ------------ Split setup
-        self.SPLIT['train'] = self.TRAIN_SPLIT
-        if 'val' in self.SPLIT['train'].split('+') or self.RUN_MODE not in ['train']:
-            self.EVAL_EVERY_EPOCH = False
+        self.split['train'] = self.train_split
+        if 'val' in self.split['train'].split('+') or self.run_mode not in ['train']:
+            self.eval_every_epoch = False
 
-        if self.RUN_MODE not in ['test']:
-            self.TEST_SAVE_PRED = False
+        if self.run_mode not in ['test']:
+            self.test_save_pred = False
 
 
         # ------------ Gradient accumulate setup
-        assert self.BATCH_SIZE % self.GRAD_ACCU_STEPS == 0
-        self.SUB_BATCH_SIZE = int(self.BATCH_SIZE / self.GRAD_ACCU_STEPS)
+        assert self.batch_size % self.grad_accu_steps == 0
+        self.sub_batch_size = int(self.batch_size / self.grad_accu_steps)
 
         # Use a small eval batch will reduce gpu memory usage
-        self.EVAL_BATCH_SIZE = int(self.SUB_BATCH_SIZE / 2)
+        self.eval_batch_size = int(self.sub_batch_size / 2)
 
 
         # ------------ Networks setup
         # FeedForwardNet size in every MCA layer
-        self.FF_SIZE = int(self.HIDDEN_SIZE * 4)
+        self.ff_size = int(self.hidden_size * 4)
 
         # A pipe line hidden size in attention compute
-        assert self.HIDDEN_SIZE % self.MULTI_HEAD == 0
-        self.HIDDEN_SIZE_HEAD = int(self.HIDDEN_SIZE / self.MULTI_HEAD)
+        assert self.hidden_size % self.multi_head == 0
+        self.hidden_size_head = int(self.hidden_size / self.multi_head)
 
 
     def __str__(self):
@@ -245,14 +247,3 @@ class Cfgs(PATH):
                 print('{ %-17s }->' % attr, getattr(self, attr))
 
         return ''
-
-#
-#
-# if __name__ == '__main__':
-#     __C = Cfgs()
-#     __C.proc()
-
-
-
-
-

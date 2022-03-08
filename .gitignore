@@ -1,0 +1,9 @@
+cfgs/__pycache__/*
+datasets/*
+en_vectors_web_lg-2.1.0.tar.gz
+ckpts/*
+core/__pycache__/*
+core/data/__pycache__/*
+core/model/__pycache__/*
+results/*
+utils/__pycache__/*

@@ -10,22 +10,22 @@ import argparse, yaml
 
 
 def parse_args():
-    '''
+    """
     Parse input arguments
-    '''
+    """
     parser = argparse.ArgumentParser(description='MCAN Args')
 
-    parser.add_argument('--RUN', dest='RUN_MODE',
+    parser.add_argument('--run', dest='run_mode',
                       choices=['train', 'val', 'test'],
                       help='{train, val, test}',
-                      type=str, required=True)
+                      type=str, default='train')
 
-    parser.add_argument('--MODEL', dest='MODEL',
+    parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
                       help='{small, large}',
                       default='small', type=str)
 
-    parser.add_argument('--SPLIT', dest='TRAIN_SPLIT',
+    parser.add_argument('--split', dest='train_split',
                       choices=['train', 'train+val', 'train+val+vg'],
                       help="set training split, "
                            "eg.'train', 'train+val+vg'"
@@ -33,84 +33,84 @@ def parse_args():
                            "eval after every epoch",
                       type=str)
 
-    parser.add_argument('--EVAL_EE', dest='EVAL_EVERY_EPOCH',
+    parser.add_argument('--eval_every_epoch',
                       help='set True to evaluate the '
                            'val split when an epoch finished'
                            "(only work when train with "
                            "'train' split)",
                       type=bool)
 
-    parser.add_argument('--SAVE_PRED', dest='TEST_SAVE_PRED',
+    parser.add_argument('--test_save_pred',
                       help='set True to save the '
                            'prediction vectors'
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--BS', dest='BATCH_SIZE',
+    parser.add_argument('--batch_size', default=256,
                       help='batch size during training',
                       type=int)
 
-    parser.add_argument('--MAX_EPOCH', dest='MAX_EPOCH',
+    parser.add_argument('--max_epoch',
                       help='max training epoch',
                       type=int)
 
-    parser.add_argument('--PRELOAD', dest='PRELOAD',
+    parser.add_argument('--preload',
                       help='pre-load the features into memory'
                            'to increase the I/O speed',
                       type=bool)
 
-    parser.add_argument('--GPU', dest='GPU',
+    parser.add_argument('--gpu', default='0,1',
                       help="gpu select, eg.'0, 1, 2'",
                       type=str)
 
-    parser.add_argument('--SEED', dest='SEED',
+    parser.add_argument('--seed', default=444,
                       help='fix random seed',
                       type=int)
 
-    parser.add_argument('--VERSION', dest='VERSION',
+    parser.add_argument('--version',
                       help='version control',
                       type=str)
 
-    parser.add_argument('--RESUME', dest='RESUME',
+    parser.add_argument('--resume',
                       help='resume training',
                       type=bool)
 
-    parser.add_argument('--CKPT_V', dest='CKPT_VERSION',
+    parser.add_argument('--ckpt_version',
                       help='checkpoint version',
                       type=str)
 
-    parser.add_argument('--CKPT_E', dest='CKPT_EPOCH',
+    parser.add_argument('--ckpt_epoch',
                       help='checkpoint epoch',
                       type=int)
 
-    parser.add_argument('--CKPT_PATH', dest='CKPT_PATH',
+    parser.add_argument('--ckpt_path',
                       help='load checkpoint path, we '
                            'recommend that you use '
-                           'CKPT_VERSION and CKPT_EPOCH '
+                           'ckpt_version and ckpt_epoch '
                            'instead',
                       type=str)
 
-    parser.add_argument('--ACCU', dest='GRAD_ACCU_STEPS',
+    parser.add_argument('--grad_accu_steps',
                       help='reduce gpu memory usage',
                       type=int)
 
-    parser.add_argument('--NW', dest='NUM_WORKERS',
+    parser.add_argument('--num_workers',
                       help='multithreaded loading',
                       type=int)
 
-    parser.add_argument('--PINM', dest='PIN_MEM',
+    parser.add_argument('--pin_mem',
                       help='use pin memory',
                       type=bool)
 
-    parser.add_argument('--VERB', dest='VERBOSE',
+    parser.add_argument('--verbose',
                       help='verbose print',
                       type=bool)
 
-    parser.add_argument('--DATA_PATH', dest='DATASET_PATH',
+    parser.add_argument('--dataset_path',
                       help='vqav2 dataset root path',
                       type=str)
 
-    parser.add_argument('--FEAT_PATH', dest='FEATURE_PATH',
+    parser.add_argument('--feature_path',
                       help='bottom up features root path',
                       type=str)
 
@@ -118,28 +118,28 @@ def parse_args():
     return args
 
 
-if __name__ == '__main__':
-    __C = Cfgs()
+def main():
+    opt = Cfgs()
 
     args = parse_args()
-    args_dict = __C.parse_to_dict(args)
+    args_dict = opt.parse_to_dict(args)
 
-    cfg_file = "cfgs/{}_model.yml".format(args.MODEL)
+    cfg_file = "cfgs/{}_model.yml".format(args.model)
     with open(cfg_file, 'r') as f:
-        yaml_dict = yaml.load(f)
+        yaml_dict = yaml.load(f, Loader=yaml.FullLoader)
 
     args_dict = {**yaml_dict, **args_dict}
-    __C.add_args(args_dict)
-    __C.proc()
+    opt.add_args(args_dict)
+    opt.proc()
 
     print('Hyper Parameters:')
-    print(__C)
+    print(opt)
 
-    __C.check_path()
+    opt.check_path()
 
-    execution = Execution(__C)
-    execution.run(__C.RUN_MODE)
-
-
+    execution = Execution(opt)
+    execution.run(opt.run_mode)
 
 
+if __name__ == '__main__':
+     main()
