@@ -7,3 +7,4 @@ core/data/__pycache__/*
 core/model/__pycache__/*
 results/*
 utils/__pycache__/*
+.vscode
