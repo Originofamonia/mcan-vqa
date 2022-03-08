@@ -138,7 +138,7 @@ class Cfgs(PATH):
 
         # Flatten the last hidden to vector with {n} attention glimpses
         self.flat_glimpses = 1
-        self.flat_out_size = 1024
+        self.flat_out_size = 512  # was 1024
 
 
         # --------------------------
@@ -229,7 +229,7 @@ class Cfgs(PATH):
         self.sub_batch_size = int(self.batch_size / self.grad_accu_steps)
 
         # Use a small eval batch will reduce gpu memory usage
-        self.eval_batch_size = int(self.sub_batch_size / 2)
+        self.eval_batch_size = self.sub_batch_size
 
 
         # ------------ Networks setup

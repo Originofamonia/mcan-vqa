@@ -16,13 +16,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MCAN Args')
 
     parser.add_argument('--run', dest='run_mode',
-                      choices=['train', 'val', 'test'],
-                      help='{train, val, test}',
+                      choices=['train', 'val', 'test', 'visualize'],
                       type=str, default='train')
 
     parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
-                      help='{small, large}',
                       default='small', type=str)
 
     parser.add_argument('--split', dest='train_split',
@@ -46,7 +44,7 @@ def parse_args():
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=256,
+    parser.add_argument('--batch_size', default=256,  # was 256
                       help='batch size during training',
                       type=int)
 

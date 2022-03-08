@@ -115,7 +115,7 @@ def ans_stat(json_file):
 # ---- Real-Time Processing Utils ----
 # ------------------------------------
 
-def proc_img_feat(img_feat, img_feat_pad_size):
+def pad_img_feat(img_feat, img_feat_pad_size):
     if img_feat.shape[0] > img_feat_pad_size:
         img_feat = img_feat[:img_feat_pad_size]
 

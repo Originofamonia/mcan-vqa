@@ -5,7 +5,7 @@
 # --------------------------------------------------------
 
 import torch
-import torch.optim as Optim
+from torch.optim import Adam
 
 
 class WarmupOptimizer(object):
@@ -55,7 +55,7 @@ def get_optim(opt, model, data_size, lr_base=None):
 
     return WarmupOptimizer(
         lr_base,
-        Optim.Adam(
+        Adam(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=0,
             betas=opt.opt_betas,

@@ -113,21 +113,21 @@ class Net(nn.Module):
             img_feat_mask
         )
 
-        lang_feat = self.attflat_lang(
+        lang_feat_flat = self.attflat_lang(
             lang_feat,
             lang_feat_mask
         )
 
-        img_feat = self.attflat_img(
+        img_feat_flat = self.attflat_img(
             img_feat,
             img_feat_mask
         )
 
-        proj_feat = lang_feat + img_feat
-        proj_feat = self.proj_norm(proj_feat)
-        proj_feat = torch.sigmoid(self.proj(proj_feat))
+        ans_feat = lang_feat_flat + img_feat_flat
+        ans_feat = self.proj_norm(ans_feat)
+        logits = torch.sigmoid(self.proj(ans_feat))
 
-        return proj_feat
+        return logits, img_feat, lang_feat, ans_feat
 
 
     # Masking

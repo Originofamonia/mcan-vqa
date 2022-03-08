@@ -3,18 +3,22 @@
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Yuhao Cui https://github.com/cuiyuhao1996
 # --------------------------------------------------------
+import os, json, torch, datetime, pickle, copy, shutil, time
+from os.path import exists
+import numpy as np
+import torch.nn as nn
+from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+import matplotlib.collections as mcoll
+import matplotlib.path as mpath
 
-from core.data.load_data import Dataset
+from core.data.load_data import CustomDataset, CustomLoader
 from core.model.net import Net
 from core.model.optim import get_optim, adjust_lr
 from core.data.data_utils import shuffle_list
 from utils.vqa import VQA
 from utils.vqaEval import VQAEval
-
-import os, json, torch, datetime, pickle, copy, shutil, time
-import numpy as np
-import torch.nn as nn
-import torch.utils.data as Data
 
 
 class Execution:
@@ -22,15 +26,15 @@ class Execution:
         self.opt = opt
 
         print('Loading training set ........')
-        self.dataset = Dataset(opt)
+        self.dataset = CustomDataset(opt)
 
         self.dataset_eval = None
         if opt.eval_every_epoch:
             eval_opt = copy.deepcopy(opt)
             setattr(eval_opt, 'run_mode', 'val')
 
-            print('Loading validation set for per-epoch evaluation ........')
-            self.dataset_eval = Dataset(eval_opt)
+            print('Loading validation set for per-epoch evaluation ...')
+            self.dataset_eval = CustomDataset(eval_opt)
 
 
     def train(self, dataset, dataset_eval=None):
@@ -100,24 +104,24 @@ class Execution:
         grad_norm = np.zeros(len(named_params))
 
         # Define multi-thread dataloader
-        if self.opt.shuffle_mode in ['external']:
-            dataloader = Data.DataLoader(
-                dataset,
-                batch_size=self.opt.batch_size,
-                shuffle=False,
-                num_workers=self.opt.num_workers,
-                pin_memory=self.opt.pin_mem,
-                drop_last=True
-            )
-        else:
-            dataloader = Data.DataLoader(
-                dataset,
-                batch_size=self.opt.batch_size,
-                shuffle=True,
-                num_workers=self.opt.num_workers,
-                pin_memory=self.opt.pin_mem,
-                drop_last=True
-            )
+        # if self.opt.shuffle_mode in ['external']:
+        #     dataloader = DataLoader(
+        #         dataset,
+        #         batch_size=self.opt.batch_size,
+        #         shuffle=False,
+        #         num_workers=self.opt.num_workers,
+        #         pin_memory=self.opt.pin_mem,
+        #         drop_last=True
+        #     )
+        # else:
+        dataloader = CustomLoader(
+            dataset, self.opt
+            # batch_size=self.opt.batch_size,
+            # shuffle=True,
+            # num_workers=self.opt.num_workers,
+            # pin_memory=self.opt.pin_mem,
+            # drop_last=True
+        )
 
         # Training script
         for epoch in range(start_epoch, self.opt.max_epoch):
@@ -145,12 +149,8 @@ class Execution:
 
             time_start = time.time()
             # Iteration
-            for step, (
-                    img_feat_iter,
-                    ques_ix_iter,
-                    ans_iter
-            ) in enumerate(dataloader):
-
+            for step, batch in enumerate(dataloader):
+                img_feat_iter, ques_ix_iter, ans_iter, idx = batch
                 optim.zero_grad()
 
                 img_feat_iter = img_feat_iter.cuda()
@@ -170,12 +170,10 @@ class Execution:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
 
-                    pred = net(
-                        sub_img_feat_iter,
-                        sub_ques_ix_iter
-                    )
+                    logits, _, _, _ = net(
+                        sub_img_feat_iter, sub_ques_ix_iter)
 
-                    loss = loss_fn(pred, sub_ans_iter)
+                    loss = loss_fn(logits, sub_ans_iter)
                     # only mean-reduction needs be divided by grad_accu_steps
                     # removing this line wouldn't change our results because the speciality of Adam optimizer,
                     # but would be necessary if you use SGD optimizer.
@@ -264,6 +262,91 @@ class Execution:
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
 
+    def visualize(self, dataset, state_dict=None, valid=False):
+        """
+        plot 1. img+box; 2. q-q; 3. v-v; 4. v-q; 5. v-a; 6. q-a.
+        """
+        # Load parameters
+        path = self.opt.ckpts_path + 'epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+
+        val_ckpt_flag = False
+        if state_dict is None:
+            val_ckpt_flag = True
+            print('Loading ckpt {}'.format(path))
+            state_dict = torch.load(path)['state_dict']
+            print('load model finished.')
+
+        # Store the prediction list
+        qid_list = [ques['question_id'] for ques in dataset.ques_list]
+        ans_ix_list = []
+        pred_list = []
+
+        data_size = dataset.data_size
+        token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        pretrained_emb = dataset.pretrained_emb
+
+        net = Net(self.opt, pretrained_emb, token_size, ans_size)
+        net.cuda()
+        net.eval()
+
+        if self.opt.n_gpu > 1:
+            net = nn.DataParallel(net, device_ids=self.opt.devices)
+
+        net.load_state_dict(state_dict)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.opt.eval_batch_size,
+            shuffle=False,
+            num_workers=self.opt.num_workers,
+            pin_memory=True
+        )
+
+        for step, batch in enumerate(dataloader):
+            if step > 200:
+                break
+            else:
+                img_feat_iter, ques_ix_iter, ans_iter, img_feats, idx = batch
+                iid, q, qid = [str(item) for item in dataloader.dataset.ques_list[idx].values()]
+                if len(iid) < 6:
+                    l_iid = len(iid)
+                    iid = '0' * (6 - l_iid) + iid
+                im_file = f'{os.getcwd()}/datasets/val2014/COCO_val2014_000000{iid}.jpg'
+                if exists(im_file):
+                    im = plt.imread(im_file)
+
+                    img_feat_iter = img_feat_iter.cuda()
+                    ques_ix_iter = ques_ix_iter.cuda()
+
+                    logits, img_feat, lang_feat, ans_feat = net(  # img_feat: [B, 100, 512]
+                        img_feat_iter, ques_ix_iter)  # lang_feat: [B, 14, 512]
+                    pred_np = logits.cpu().data.numpy()
+                    pred_argmax = np.argmax(pred_np, axis=1)
+
+                    # Save the answer index
+                    if pred_argmax.shape[0] != self.opt.eval_batch_size:
+                        pred_argmax = np.pad(
+                            pred_argmax,
+                            (0, self.opt.eval_batch_size - pred_argmax.shape[0]),
+                            mode='constant',
+                            constant_values=-1
+                        )
+
+                    ans_ix_list.append(pred_argmax)
+                    pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
+                    ans = [item['answer'] for item in dataloader.dataset.ans_list[idx]['answers']]
+                    fig, axs = plt.subplots(2, 3)
+                    # fig, axs = plt.subplots()
+                    axs[0, 0].imshow(im)  # 1. img+box
+                    plot_boxes(axs[0, 0], img_feats[0], 9)
+
+                    caption = f'q: {q}\n pred: {pred}\nans: {ans}'
+                    fig.text(0.01, 0.91, f'{caption}')
+                    f1 = os.path.join(os.getcwd(), f'results/val_imgs/{iid}.jpg')
+                    plt.savefig(f1)
+                    plt.close()
+
 
     # Evaluation
     def eval(self, dataset, state_dict=None, valid=False):
@@ -276,15 +359,14 @@ class Execution:
             path = self.opt.ckpt_path
         else:
             path = self.opt.ckpts_path + \
-                   'ckpt_' + self.opt.ckpt_version + \
-                   '/epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+                    'epoch' + str(self.opt.ckpt_epoch) + '.pkl'
 
         val_ckpt_flag = False
         if state_dict is None:
             val_ckpt_flag = True
             print('Loading ckpt {}'.format(path))
             state_dict = torch.load(path)['state_dict']
-            print('Finish!')
+            print('load model finished.')
 
         # Store the prediction list
         qid_list = [ques['question_id'] for ques in dataset.ques_list]
@@ -296,12 +378,7 @@ class Execution:
         ans_size = dataset.ans_size
         pretrained_emb = dataset.pretrained_emb
 
-        net = Net(
-            self.opt,
-            pretrained_emb,
-            token_size,
-            ans_size
-        )
+        net = Net(self.opt, pretrained_emb, token_size, ans_size)
         net.cuda()
         net.eval()
 
@@ -310,7 +387,7 @@ class Execution:
 
         net.load_state_dict(state_dict)
 
-        dataloader = Data.DataLoader(
+        dataloader = DataLoader(
             dataset,
             batch_size=self.opt.eval_batch_size,
             shuffle=False,
@@ -318,24 +395,20 @@ class Execution:
             pin_memory=True
         )
 
-        for step, (
-                img_feat_iter,
-                ques_ix_iter,
-                ans_iter
-        ) in enumerate(dataloader):
+        for step, batch in enumerate(dataloader):
+            img_feat_iter, ques_ix_iter, ans_iter, idx = batch
             print("\rEvaluation: [step %4d/%4d]" % (
-                step,
-                int(data_size / self.opt.eval_batch_size),
+                step, int(data_size / self.opt.eval_batch_size),
             ), end='          ')
 
             img_feat_iter = img_feat_iter.cuda()
             ques_ix_iter = ques_ix_iter.cuda()
 
-            pred = net(
+            logits = net(
                 img_feat_iter,
                 ques_ix_iter
             )
-            pred_np = pred.cpu().data.numpy()
+            pred_np = logits.cpu().data.numpy()
             pred_argmax = np.argmax(pred_np, axis=1)
 
             # Save the answer index
@@ -348,6 +421,7 @@ class Execution:
                 )
 
             ans_ix_list.append(pred_argmax)
+            # pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
 
             # Save the whole prediction vector
             if self.opt.test_save_pred:
@@ -361,7 +435,6 @@ class Execution:
 
                 pred_list.append(pred_np)
 
-        print('')
         ans_ix_list = np.array(ans_ix_list).reshape(-1)
 
         result = [{
@@ -493,10 +566,9 @@ class Execution:
         if run_mode == 'train':
             self.empty_log(self.opt.version)
             self.train(self.dataset, self.dataset_eval)
-
         elif run_mode == 'val':
-            self.eval(self.dataset, valid=True)
-
+            # self.eval(self.dataset, valid=True)
+            self.visualize(self.dataset, valid=True)
         elif run_mode == 'test':
             self.eval(self.dataset)
 
@@ -509,3 +581,13 @@ class Execution:
         if (os.path.exists(self.opt.log_path + 'log_run_' + version + '.txt')):
             os.remove(self.opt.log_path + 'log_run_' + version + '.txt')
         print('Finished!\n')
+
+
+def plot_boxes(ax, boxes, n_box):
+    for i, box in enumerate(boxes[:n_box]):
+        box_w, box_h = (box[2] - box[0]).item(), (box[3] - box[0]).item()  # xyxy, xywh or center-xywh not sure
+        x = box[0] - box[2] / 2
+        y = box[1] - box[3] / 2
+        rect = Rectangle((box[0].item(), box[1].item()), box_w, box_h, linewidth=2, 
+            edgecolor=np.random.rand(3,), facecolor='none', alpha=1)
+        ax.add_patch(rect)

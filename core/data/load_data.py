@@ -3,22 +3,18 @@
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Yuhao Cui https://github.com/cuiyuhao1996
 # --------------------------------------------------------
-
-from core.data.data_utils import img_feat_path_load, img_feat_load, ques_load, tokenize, ans_stat
-from core.data.data_utils import proc_img_feat, proc_ques, proc_ans
-
 import numpy as np
 import glob, json, torch, time
-import torch.utils.data as Data
+from torch.utils.data import Dataset, DataLoader
+
+from core.data.data_utils import img_feat_path_load, img_feat_load, ques_load, tokenize, ans_stat
+from core.data.data_utils import pad_img_feat, proc_ques, proc_ans
 
 
-class Dataset(Data.Dataset):
+class CustomDataset(Dataset):
     def __init__(self, opt):
         self.opt = opt
-        # --------------------------
         # ---- Raw data loading ----
-        # --------------------------
-
         # Loading all image paths
         # if self.opt.preload:
         self.img_feat_path_list = []
@@ -26,15 +22,6 @@ class Dataset(Data.Dataset):
         for split in split_list:
             if split in ['train', 'val', 'test']:
                 self.img_feat_path_list += glob.glob(opt.img_feat_path[split] + '*.npz')
-
-        # if __C.EVAL_EVERY_EPOCH and __C.run_mode in ['train']:
-        #     self.img_feat_path_list += glob.glob(__C.img_feat_path['val'] + '*.npz')
-
-        # else:
-        #     self.img_feat_path_list = \
-        #         glob.glob(__C.img_feat_path['train'] + '*.npz') + \
-        #         glob.glob(__C.img_feat_path['val'] + '*.npz') + \
-        #         glob.glob(__C.img_feat_path['test'] + '*.npz')
 
         # Loading question word list
         self.stat_ques_list = \
@@ -55,8 +42,8 @@ class Dataset(Data.Dataset):
         split_list = opt.split[opt.run_mode].split('+')
         for split in split_list:
             self.ques_list += json.load(open(opt.question_path[split], 'r'))['questions']
-            if opt.run_mode in ['train']:
-                self.ans_list += json.load(open(opt.answer_path[split], 'r'))['annotations']
+            # if opt.run_mode in ['train']:
+            self.ans_list += json.load(open(opt.answer_path[split], 'r'))['annotations']
 
         # Define run data size
         if opt.run_mode in ['train']:
@@ -66,10 +53,7 @@ class Dataset(Data.Dataset):
 
         print('== Dataset size:', self.data_size)
 
-        # ------------------------
         # ---- Data statistic ----
-        # ------------------------
-
         # {image id} -> {image feature absolutely path}
         if self.opt.preload:
             print('==== Pre-Loading features ...')
@@ -101,9 +85,7 @@ class Dataset(Data.Dataset):
         self.ans_to_ix, self.ix_to_ans = ans_stat('core/data/answer_dict.json')
         self.ans_size = self.ans_to_ix.__len__()
         print('== Answer vocab size (occurr more than {} times):'.format(8), self.ans_size)
-        print('Finished!')
-        print('')
-
+        print('load dataset finished.')
 
     def __getitem__(self, idx):
 
@@ -122,15 +104,19 @@ class Dataset(Data.Dataset):
             if self.opt.preload:
                 img_feat_x = self.iid_to_img_feat[str(ans['image_id'])]
             else:
-                img_feat = np.load(self.iid_to_img_feat_path[str(ans['image_id'])])
-                img_feat_x = img_feat['x'].transpose((1, 0))
-            img_feat_iter = proc_img_feat(img_feat_x, self.opt.img_feat_pad_size)
+                img_feats = np.load(self.iid_to_img_feat_path[str(ans['image_id'])])
+                img_feat_x = img_feats['x'].transpose((1, 0))
+            img_feat_iter = pad_img_feat(img_feat_x, self.opt.img_feat_pad_size)
+            boxes = pad_img_feat(img_feats['bbox'], self.opt.img_feat_pad_size)
 
             # Process question
             ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
 
             # Process answer
             ans_iter = proc_ans(ans, self.ans_to_ix)
+            return torch.from_numpy(img_feat_iter), \
+               torch.from_numpy(ques_ix_iter), \
+               torch.from_numpy(ans_iter), torch.from_numpy(boxes), torch.tensor([idx]), self.opt.run_mode
 
         else:
             # Load the run data from list
@@ -143,18 +129,48 @@ class Dataset(Data.Dataset):
             if self.opt.preload:
                 img_feat_x = self.iid_to_img_feat[str(ques['image_id'])]
             else:
-                img_feat = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
-                img_feat_x = img_feat['x'].transpose((1, 0))
-            img_feat_iter = proc_img_feat(img_feat_x, self.opt.img_feat_pad_size)
+                img_feats = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
+                img_feat_x = img_feats['x'].transpose((1, 0))
+            img_feat_iter = pad_img_feat(img_feat_x, self.opt.img_feat_pad_size)
 
             # Process question
             ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
 
-
-        return torch.from_numpy(img_feat_iter), \
-               torch.from_numpy(ques_ix_iter), \
-               torch.from_numpy(ans_iter)
+            return torch.from_numpy(img_feat_iter), \
+                torch.from_numpy(ques_ix_iter), \
+                torch.from_numpy(ans_iter), img_feats, torch.tensor([idx]), self.opt.run_mode
 
 
     def __len__(self):
         return self.data_size
+
+
+class CustomLoader(DataLoader):
+    def __init__(self, dataset, opt):
+        # self.dataset = dataset
+        self.opt = opt
+        self.init_kwargs = {
+            'dataset': dataset,
+            'batch_size': self.opt.batch_size,
+            'shuffle': True,
+            'collate_fn': self.collate_fn,
+            'num_workers': self.opt.num_workers,
+            'pin_memory': self.opt.pin_mem,
+            'drop_last': True,
+        }
+        super().__init__(**self.init_kwargs)
+
+    @staticmethod
+    def collate_fn(data):
+        img_feat_iter, ques_ix_iter, ans_iter, bbox, idx, mode = zip(*data)
+        img_feat_iter = torch.stack(img_feat_iter, dim=0)
+        ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
+        ans_iter = torch.stack(ans_iter, dim=0)
+        idx = torch.stack(idx, dim=0)
+        if mode[0] == 'train':
+            # bbox = torch.stack(bbox, dim=0)
+            return img_feat_iter, ques_ix_iter, ans_iter, idx
+        elif mode[0] == 'val':
+            return img_feat_iter, ques_ix_iter, ans_iter, bbox, idx        
+        else:
+            return
