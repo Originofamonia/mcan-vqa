@@ -34,7 +34,7 @@ class Execution:
             setattr(eval_opt, 'run_mode', 'val')
 
             print('Loading validation set for per-epoch evaluation ...')
-            self.dataset_eval = CustomDataset(eval_opt)
+            # self.dataset_eval = CustomDataset(eval_opt)
 
 
     def train(self, dataset, dataset_eval=None):

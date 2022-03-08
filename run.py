@@ -31,7 +31,7 @@ def parse_args():
                            "eval after every epoch",
                       type=str)
 
-    parser.add_argument('--eval_every_epoch',
+    parser.add_argument('--eval_every_epoch', default=False,
                       help='set True to evaluate the '
                            'val split when an epoch finished'
                            "(only work when train with "
