@@ -17,7 +17,7 @@ def parse_args():
 
     parser.add_argument('--run', dest='run_mode',
                       choices=['train', 'val', 'test', 'visualize'],
-                      type=str, default='train')
+                      type=str, default='val')
 
     parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
@@ -44,7 +44,7 @@ def parse_args():
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=256,  # was 256
+    parser.add_argument('--batch_size', default=1,  # was 256
                       help='batch size during training',
                       type=int)
 

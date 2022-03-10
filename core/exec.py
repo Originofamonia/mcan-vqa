@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
+from matplotlib.gridspec import GridSpec
 
 from core.data.load_data import CustomDataset, CustomLoader
 from core.model.net import Net
@@ -141,7 +142,7 @@ class Execution:
 
             # Learning Rate Decay
             if epoch in self.opt.lr_decay_list:
-                adjust_lr(optim, self.opt.lr_decay_r)
+                adjust_lr(optim, self.opt.lr_decay_rate)
 
             # Externally shuffle
             if self.opt.shuffle_mode == 'external':
@@ -219,7 +220,6 @@ class Execution:
             time_end = time.time()
             print('Finished in {}s'.format(int(time_end-time_start)))
 
-            # print('')
             epoch_finish = epoch + 1
 
             # Save checkpoint
@@ -228,6 +228,7 @@ class Execution:
                 'optimizer': optim.optimizer.state_dict(),
                 'lr_base': optim.lr_base
             }
+
             torch.save(
                 state,
                 self.opt.ckpts_path +
@@ -242,6 +243,7 @@ class Execution:
                 'log_run_' + self.opt.version + '.txt',
                 'a+'
             )
+
             logfile.write(
                 'epoch = ' + str(epoch_finish) +
                 '  loss = ' + str(loss_sum / data_size) +
@@ -256,8 +258,7 @@ class Execution:
                 self.eval(
                     dataset_eval,
                     state_dict=net.state_dict(),
-                    valid=True
-                )
+                    valid=True)
 
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
@@ -267,7 +268,7 @@ class Execution:
         plot 1. img+box; 2. q-q; 3. v-v; 4. v-q; 5. v-a; 6. q-a.
         """
         # Load parameters
-        path = self.opt.ckpts_path + 'epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+        path = f'{self.opt.ckpts_path}epoch{str(self.opt.ckpt_epoch)}_512.pkl'
 
         val_ckpt_flag = False
         if state_dict is None:
@@ -314,12 +315,11 @@ class Execution:
                     iid = '0' * (6 - l_iid) + iid
                 im_file = f'{os.getcwd()}/datasets/val2014/COCO_val2014_000000{iid}.jpg'
                 if exists(im_file):
-                    im = plt.imread(im_file)
-
+                    
                     img_feat_iter = img_feat_iter.cuda()
                     ques_ix_iter = ques_ix_iter.cuda()
-
-                    logits, img_feat, lang_feat, ans_feat = net(  # img_feat: [B, 100, 512]
+                    # img_feat: [B, 100, 512]
+                    logits, img_feat, img_feat_mask, q_feat, q_feat_mask, ans_feat = net(
                         img_feat_iter, ques_ix_iter)  # lang_feat: [B, 14, 512]
                     pred_np = logits.cpu().data.numpy()
                     pred_argmax = np.argmax(pred_np, axis=1)
@@ -336,16 +336,13 @@ class Execution:
                     ans_ix_list.append(pred_argmax)
                     pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
                     ans = [item['answer'] for item in dataloader.dataset.ans_list[idx]['answers']]
-                    fig, axs = plt.subplots(2, 3)
-                    # fig, axs = plt.subplots()
-                    axs[0, 0].imshow(im)  # 1. img+box
-                    plot_boxes(axs[0, 0], img_feats[0], 9)
+                    
+                    qq, qa, va_values, va_indices, vv, vq = calc_mats(img_feat[0], 
+                        img_feat_mask[0], q_feat[0], q_feat_mask[0], ans_feat)
+                    plot_boxes(im_file, iid, q, pred, ans, img_feats['bbox'][0], 
+                        qq, qa, va_values, va_indices, vv, vq)
 
-                    caption = f'q: {q}\n pred: {pred}\nans: {ans}'
-                    fig.text(0.01, 0.91, f'{caption}')
-                    f1 = os.path.join(os.getcwd(), f'results/val_imgs/{iid}.jpg')
-                    plt.savefig(f1)
-                    plt.close()
+                    
 
 
     # Evaluation
@@ -583,11 +580,98 @@ class Execution:
         print('Finished!\n')
 
 
-def plot_boxes(ax, boxes, n_box):
-    for i, box in enumerate(boxes[:n_box]):
-        box_w, box_h = (box[2] - box[0]).item(), (box[3] - box[0]).item()  # xyxy, xywh or center-xywh not sure
-        x = box[0] - box[2] / 2
-        y = box[1] - box[3] / 2
-        rect = Rectangle((box[0].item(), box[1].item()), box_w, box_h, linewidth=2, 
-            edgecolor=np.random.rand(3,), facecolor='none', alpha=1)
-        ax.add_patch(rect)
+def plot_boxes(im_file, iid, q, pred, ans, boxes, qq, qa, va_values, va_indices, vv, vq):
+    """
+    https://matplotlib.org/stable/gallery/images_contours_and_fields/image_annotated_heatmap.html
+    TODO: plot all 6 figures, put make axs in here
+    """
+    va_indices = va_indices.squeeze()
+    selected_boxes = boxes[va_indices]
+    min_box = va_values.min()
+    box_range = va_values.max() - min_box
+
+    im = plt.imread(im_file)
+    fig = plt.figure()
+    gs = GridSpec(4, 4, fig)
+    ax0 = fig.add_subplot(gs[:3, :3])
+    ax0.imshow(im)  # 1. img+box
+    for i, box in enumerate(selected_boxes):  # suspect xywh, xy is top left
+        # print(i)
+        left = box[0].item()
+        bottom = (box[1]+box[3]).item()
+        w, h = box[2].item(), box[3].item()
+        box_weights = ((va_values[i] - min_box) / box_range).item()
+        rect = Rectangle((left, bottom), w, h, linewidth=1.9 * box_weights, 
+            edgecolor=np.random.rand(3,), facecolor='none', alpha=box_weights)
+        ax0.add_artist(rect)
+        ax0.text(left, bottom, va_indices[i].item(), horizontalalignment='left',
+            verticalalignment='top', transform=ax0.transAxes)
+    
+    ax1 = fig.add_subplot(gs[0, 3])
+    ax1.imshow(vv.detach().cpu().numpy())
+    ax1.set_xticks(np.arange(len(vv)))
+    ax1.set_xticklabels(va_indices.detach().cpu().numpy())
+    ax1.set_yticks(np.arange(len(vv)))
+    ax1.set_yticklabels(va_indices.detach().cpu().numpy())
+    
+    q_words = q.split(' ')
+    ax2 = fig.add_subplot(gs[1, 3])
+    im2 = ax2.imshow(qq.detach().cpu().numpy())
+    ax2.set_xticks(np.arange(len(q_words)))
+    ax2.set_xticklabels(q_words)
+    ax2.set_yticks(np.arange(len(q_words)))
+    ax2.set_yticklabels(q_words)
+    plt.setp(ax2.get_xticklabels(), rotation=-45, ha='left', rotation_mode='anchor')
+    cbar = ax2.figure.colorbar(im2, ax=ax2,)
+    cbar.ax.set_ylabel(cbarlabel='', rotation=-90, va="bottom")
+
+    ax3 = fig.add_subplot(gs[3, 0])
+    ax3.imshow(qa.detach().cpu().numpy())
+    ax3.set_yticks(np.arange(len(q_words)))
+    ax3.set_yticklabels(q_words)
+    ax3.set_xticks([0])
+    ax3.set_xticklabels([pred])
+
+    ax4 = fig.add_subplot(gs[3, 1])
+    ax4.imshow(va_values.detach().cpu().numpy())
+    ax4.set_yticks(np.arange(len(vv)))
+    ax4.set_yticklabels(va_indices.detach().cpu().numpy())
+    ax4.set_xticks([0])
+    ax4.set_xticklabels([pred])
+
+    ax5 = fig.add_subplot(gs[3, 3])
+    ax5.imshow(vq.detach().cpu().numpy())
+    ax5.set_yticks(np.arange(len(vv)))
+    ax5.set_yticklabels(va_indices.detach().cpu().numpy())
+    ax5.set_xticks(np.arange(len(q_words)))
+    ax5.set_xticklabels(q_words)
+    plt.setp(ax5.get_xticklabels(), rotation=-45, ha='left', rotation_mode='anchor')
+    
+    caption = f'q: {q}\n pred: {pred}\nans: {ans}'
+    fig.text(0.01, 0.91, f'{caption}')
+    f1 = os.path.join(os.getcwd(), f'results/val_imgs/{iid}.jpg')
+    plt.savefig(f1)
+    plt.close()
+
+
+def calc_mats(img_feat, i_feat_mask, q_feat, q_feat_mask, ans_feat):
+    """
+    calc all matrices scores: vv, qq, qa, va, vq
+    1. use ans select img_feat
+    ans * v to select v, tentatively select 9
+    ans * q to highlight q and select len(q) rois for visualize
+    """
+    i_feat_mask = ~i_feat_mask.squeeze()
+    img_feat = img_feat[i_feat_mask]  # [41, 512]
+    q_feat_mask = ~q_feat_mask.squeeze()
+    q_feat = q_feat[q_feat_mask]  # [4, 512]
+    qq_scores = torch.matmul(q_feat, q_feat.permute(1, 0))
+    # len_q = q_feat.size(0)  # tentatively omit
+    qa_scores = torch.matmul(q_feat, ans_feat.permute(1, 0))  # [4, 1]
+    va_scores = torch.matmul(img_feat, ans_feat.permute(1, 0))  # [41, 1]
+    va_values, va_indices = torch.topk(va_scores, k=9, dim=0)
+
+    selected_v = img_feat[va_indices.squeeze()]
+    vv_scores = torch.matmul(selected_v, selected_v.permute(1, 0))
+    vq_scores = torch.matmul(selected_v, q_feat.permute(1, 0))
+    return qq_scores, qa_scores, va_values, va_indices, vv_scores, vq_scores

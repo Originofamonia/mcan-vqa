@@ -135,10 +135,10 @@ class CustomDataset(Dataset):
 
             # Process question
             ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
-
+            # only works for batchsize=1
             return torch.from_numpy(img_feat_iter), \
                 torch.from_numpy(ques_ix_iter), \
-                torch.from_numpy(ans_iter), img_feats, torch.tensor([idx]), self.opt.run_mode
+                torch.from_numpy(ans_iter), img_feats, idx
 
 
     def __len__(self):
