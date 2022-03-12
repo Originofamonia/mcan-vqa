@@ -305,7 +305,7 @@ class Execution:
         )
 
         for step, batch in enumerate(dataloader):
-            if step > 200:
+            if step > 300:
                 break
             else:
                 img_feat_iter, ques_ix_iter, ans_iter, img_feats, idx = batch
@@ -595,18 +595,18 @@ def plot_boxes(im_file, iid, q, pred, ans, boxes, qq, qa, va_values, va_indices,
     gs = GridSpec(4, 4, fig)
     ax0 = fig.add_subplot(gs[:3, :3])
     ax0.imshow(im)  # 1. img+box
-    for i, box in enumerate(selected_boxes):  # suspect xywh, xy is top left
-        # print(i)
+    for i, box in enumerate(selected_boxes):  # is xyxy, verified
+        c = np.random.rand(3,)
         left = box[0].item()
-        bottom = (box[1]+box[3]).item()
-        w, h = box[2].item(), box[3].item()
+        top = box[1].item()
+        w, h = (box[2]-box[0]).item(), (box[3]-box[1]).item()
         box_weights = ((va_values[i] - min_box) / box_range).item()
-        rect = Rectangle((left, bottom), w, h, linewidth=1.9 * box_weights, 
-            edgecolor=np.random.rand(3,), facecolor='none', alpha=box_weights)
+        rect = Rectangle((left, top), w, h, linewidth=1, 
+            edgecolor=c, facecolor='none', alpha=1)
         ax0.add_artist(rect)
-        ax0.text(left, bottom, va_indices[i].item(), horizontalalignment='left',
-            verticalalignment='top', transform=ax0.transAxes)
-    
+        ax0.text(left, top, va_indices[i].item(), horizontalalignment='right',
+            verticalalignment='bottom', color=c)
+
     ax1 = fig.add_subplot(gs[0, 3])
     ax1.imshow(vv.detach().cpu().numpy())
     ax1.set_xticks(np.arange(len(vv)))
@@ -622,8 +622,8 @@ def plot_boxes(im_file, iid, q, pred, ans, boxes, qq, qa, va_values, va_indices,
     ax2.set_yticks(np.arange(len(q_words)))
     ax2.set_yticklabels(q_words)
     plt.setp(ax2.get_xticklabels(), rotation=-45, ha='left', rotation_mode='anchor')
-    cbar = ax2.figure.colorbar(im2, ax=ax2,)
-    cbar.ax.set_ylabel(cbarlabel='', rotation=-90, va="bottom")
+    # cbar = ax2.figure.colorbar(im2, ax=ax2,)
+    # cbar.ax.set_ylabel(ylabel='', cbarlabel='', rotation=-90, va="bottom")
 
     ax3 = fig.add_subplot(gs[3, 0])
     ax3.imshow(qa.detach().cpu().numpy())
@@ -657,8 +657,9 @@ def plot_boxes(im_file, iid, q, pred, ans, boxes, qq, qa, va_values, va_indices,
 def calc_mats(img_feat, i_feat_mask, q_feat, q_feat_mask, ans_feat):
     """
     calc all matrices scores: vv, qq, qa, va, vq
-    1. use ans select img_feat
-    ans * v to select v, tentatively select 9
+    1. use ans select img_feat: no, doesn't make sense
+    2. use q select v
+    ans * v to select v, tentatively select 7 boxes
     ans * q to highlight q and select len(q) rois for visualize
     """
     i_feat_mask = ~i_feat_mask.squeeze()
@@ -669,7 +670,7 @@ def calc_mats(img_feat, i_feat_mask, q_feat, q_feat_mask, ans_feat):
     # len_q = q_feat.size(0)  # tentatively omit
     qa_scores = torch.matmul(q_feat, ans_feat.permute(1, 0))  # [4, 1]
     va_scores = torch.matmul(img_feat, ans_feat.permute(1, 0))  # [41, 1]
-    va_values, va_indices = torch.topk(va_scores, k=9, dim=0)
+    va_values, va_indices = torch.topk(va_scores, k=7, dim=0)
 
     selected_v = img_feat[va_indices.squeeze()]
     vv_scores = torch.matmul(selected_v, selected_v.permute(1, 0))
