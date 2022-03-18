@@ -18,7 +18,8 @@ class CustomDataset(Dataset):
         # Loading all image paths
         # if self.opt.preload:
         self.img_feat_path_list = []
-        split_list = opt.split[opt.run_mode].split('+')
+        split_list = opt.split[opt.run_mode].split('+')  # change this for split
+        # split_list = ['test']
         for split in split_list:
             if split in ['train', 'val', 'test']:
                 self.img_feat_path_list += glob.glob(opt.img_feat_path[split] + '*.npz')
@@ -39,7 +40,8 @@ class CustomDataset(Dataset):
         self.ques_list = []
         self.ans_list = []
 
-        split_list = opt.split[opt.run_mode].split('+')
+        # split_list = opt.split[opt.run_mode].split('+')
+        # split_list = ['train', 'val', 'test']
         for split in split_list:
             self.ques_list += json.load(open(opt.question_path[split], 'r'))['questions']
             # if opt.run_mode in ['train']:

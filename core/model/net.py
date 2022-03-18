@@ -24,7 +24,7 @@ class AttFlat(nn.Module):
         self.mlp = MLP(
             in_size=opt.hidden_size,
             mid_size=opt.flat_mlp_size,
-            out_size=opt.flat_glimpses,
+            out_size=opt.flat_glimpses,  # att heads
             dropout_rate=opt.dropout_rate,
             use_relu=True
         )
@@ -35,23 +35,23 @@ class AttFlat(nn.Module):
         )
 
     def forward(self, x, x_mask):
-        att = self.mlp(x)
-        att = att.masked_fill(
+        att_w = self.mlp(x)
+        att_w = att_w.masked_fill(
             x_mask.squeeze(1).squeeze(1).unsqueeze(2),
             -1e9
         )
-        att = F.softmax(att, dim=1)
+        att_w = F.softmax(att_w, dim=1)  # att weights
 
         att_list = []
         for i in range(self.opt.flat_glimpses):
             att_list.append(
-                torch.sum(att[:, :, i: i + 1] * x, dim=1)
+                torch.sum(att_w[:, :, i: i + 1] * x, dim=1)
             )
 
         x_atted = torch.cat(att_list, dim=1)
         x_atted = self.linear_merge(x_atted)
 
-        return x_atted
+        return x_atted, att_w
 
 
 # -------------------------
@@ -92,42 +92,42 @@ class Net(nn.Module):
         self.proj = nn.Linear(opt.flat_out_size, answer_size)
 
 
-    def forward(self, img_feat, ques_ix):
+    def forward(self, v, ques_ix):
 
         # Make mask
-        q_feat_mask = self.make_mask(ques_ix.unsqueeze(2))
-        img_feat_mask = self.make_mask(img_feat)
+        q_mask = self.make_mask(ques_ix.unsqueeze(2))
+        v_mask = self.make_mask(v)
 
         # Pre-process Language Feature
-        q_feat = self.embedding(ques_ix)
-        q_feat, _ = self.lstm(q_feat)
+        q = self.embedding(ques_ix)
+        q, _ = self.lstm(q)
 
         # Pre-process Image Feature
-        img_feat = self.img_feat_linear(img_feat)
+        v = self.img_feat_linear(v)
 
         # Backbone Framework
-        q_feat, img_feat = self.backbone(
-            q_feat,
-            img_feat,
-            q_feat_mask,
-            img_feat_mask
+        q, v = self.backbone(
+            q,
+            v,
+            q_mask,
+            v_mask
         )
 
-        lang_feat_flat = self.attflat_lang(
-            q_feat,
-            q_feat_mask
+        lang_feat_flat, q_w = self.attflat_lang(  # [B, 512]
+            q,
+            q_mask
         )
 
-        img_feat_flat = self.attflat_img(
-            img_feat,
-            img_feat_mask
+        img_feat_flat, v_w = self.attflat_img(  # [B, 512]
+            v,
+            v_mask
         )
 
-        ans_feat = lang_feat_flat + img_feat_flat
-        ans_feat = self.proj_norm(ans_feat)
-        logits = torch.sigmoid(self.proj(ans_feat))
+        a = lang_feat_flat + img_feat_flat
+        a = self.proj_norm(a)  # [B, 512]
+        logits = torch.sigmoid(self.proj(a))
 
-        return logits, img_feat, img_feat_mask, q_feat, q_feat_mask, ans_feat
+        return logits, v, v_mask, v_w, q, q_mask, q_w, a
 
 
     # Masking

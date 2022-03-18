@@ -5,8 +5,11 @@
 # --------------------------------------------------------
 
 import os
+from copy import copy
+import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from matplotlib import colors
 
 from cfgs.base_cfgs import Cfgs
 from core.exec import Execution
@@ -144,51 +147,68 @@ def main():
 
 
 def text_layout():
-     fig = plt.figure()
+    # compute some interesting data
+    x0, x1 = -5, 5
+    y0, y1 = -3, 3
+    x = np.linspace(x0, x1, 500)
+    y = np.linspace(y0, y1, 500)
+    X, Y = np.meshgrid(x, y)
+    Z1 = np.exp(-X**2 - Y**2)
+    Z2 = np.exp(-(X - 1)**2 - (Y - 1)**2)
+    Z = (Z1 - Z2) * 2
 
-     left, width = .25, .5
-     bottom, height = .25, .5
-     right = left + width
-     top = bottom + height
-     
-     # Draw a rectangle in figure coordinates ((0, 0) is bottom left and (1, 1) is
-     # upper right).
-     p = Rectangle((left, bottom), width, height, fill=False)
-     fig.add_artist(p)
-     # Figure.text (aka. plt.figtext) behaves like Axes.text (aka. plt.text), with
-     # the sole exception that the coordinates are relative to the figure ((0, 0) is
-     # bottom left and (1, 1) is upper right).
-     fig.text(left, bottom, 'left top',
-          horizontalalignment='left', verticalalignment='top')
-     fig.text(left, bottom, 'left bottom',
-          horizontalalignment='left', verticalalignment='bottom')
-     fig.text(right, top, 'right bottom',
-          horizontalalignment='right', verticalalignment='bottom')
-     fig.text(right, top, 'right top',
-          horizontalalignment='right', verticalalignment='top')
-     fig.text(right, bottom, 'center top',
-          horizontalalignment='center', verticalalignment='top')
-     fig.text(left, 0.5*(bottom+top), 'right center',
-          horizontalalignment='right', verticalalignment='center',
-          rotation='vertical')
-     fig.text(left, 0.5*(bottom+top), 'left center',
-          horizontalalignment='left', verticalalignment='center',
-          rotation='vertical')
-     fig.text(0.5*(left+right), 0.5*(bottom+top), 'middle',
-          horizontalalignment='center', verticalalignment='center',
-          fontsize=20, color='red')
-     fig.text(right, 0.5*(bottom+top), 'centered',
-          horizontalalignment='center', verticalalignment='center',
-          rotation='vertical')
-     fig.text(left, top, 'rotated\nwith newlines',
-          horizontalalignment='center', verticalalignment='center',
-          rotation=45)
+    # Set up a colormap:
+    # use copy so that we do not mutate the global colormap instance
+    palette = copy(plt.cm.gray)
+    palette.set_over('r', 1.0)
+    palette.set_under('g', 1.0)
+    palette.set_bad('b', 1.0)
+    # Alternatively, we could use
+    # palette.set_bad(alpha = 0.0)
+    # to make the bad region transparent.  This is the default.
+    # If you comment out all the palette.set* lines, you will see
+    # all the defaults; under and over will be colored with the
+    # first and last colors in the palette, respectively.
+    Zm = np.ma.masked_where(Z > 1.2, Z)
 
-     caption = f'text layout'
-     fig.text(0.01, 0.91, f'{caption}')
-     f1 = os.path.join(os.getcwd(), f'results/val_imgs/text_layout.jpg')
-     plt.savefig(f1)
-     plt.close()
+    # By setting vmin and vmax in the norm, we establish the
+    # range to which the regular palette color scale is applied.
+    # Anything above that range is colored based on palette.set_over, etc.
+
+    # set up the Axes objects
+    fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(6, 5.4))
+
+    # plot using 'continuous' color map
+    im = ax1.imshow(Zm, interpolation='bilinear',
+              cmap=palette,
+              norm=colors.Normalize(vmin=-1.0, vmax=1.0),
+              aspect='auto',
+              origin='lower',
+              extent=[x0, x1, y0, y1])
+    ax1.set_title('Green=low, Red=high, Blue=masked')
+    cbar = fig.colorbar(im, extend='both', shrink=0.9, ax=ax1)
+    cbar.set_label('uniform')
+    for ticklabel in ax1.xaxis.get_ticklabels():
+        ticklabel.set_visible(False)
+
+    # Plot using a small number of colors, with unevenly spaced boundaries.
+    im = ax2.imshow(Zm, interpolation='nearest',
+              cmap=palette,
+              norm=colors.BoundaryNorm([-1, -0.5, -0.2, 0, 0.2, 0.5, 1],
+                                       ncolors=palette.N),
+              aspect='auto',
+              origin='lower',
+              extent=[x0, x1, y0, y1])
+    ax2.set_title('With BoundaryNorm')
+    cbar = fig.colorbar(im, extend='both', spacing='proportional',
+                   shrink=0.9, ax=ax2)
+    cbar.set_label('proportional')
+
+    fig.suptitle('imshow, with out-of-range and masked data')
+
+    f1 = os.path.join(os.getcwd(), f'results/val_imgs/dark_mask.jpg')
+    plt.savefig(f1)
+    plt.close()
 
 
 if __name__ == '__main__':
