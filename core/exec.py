@@ -284,8 +284,8 @@ class Execution:
         src_path = f'/home/qiyuan/2022spring/mcan-vqa/datasets/{task}2014/COCO_{task}2014_000000'
         tgt_path = f'/home/qiyuan/2022spring/mcan-vqa/results/val_imgs/'
         question = 'What is the green vegetable?'
-        iid = '228749'
-        # q_list = [item for item in dataset.ques_list if item['question'] == question]
+        # iid = '228749'
+        qid_list = [str(item['question_id']) for item in dataset.ques_list if item['question'].startswith('How many')]
         # for item in q_list:
         #     iid = str(item['image_id'])
         #     if len(iid) < 6:
@@ -297,8 +297,6 @@ class Execution:
         #             shutil.copy(img_path, tgt_path)
         #     except:
         #         print(f"{item['image_id']} doesnt exist")
-        ans_ix_list = []
-        pred_list = []
 
         data_size = dataset.data_size
         token_size = dataset.token_size
@@ -323,45 +321,45 @@ class Execution:
         )
 
         for step, batch in enumerate(dataloader):
-            if step > 300:
+            if step > 1000:
                 break
             else:
-                # img_feat_iter, ques_ix_iter, ans_iter, img_feats, idx = batch
-                img_feat_iter, ques_ix_iter, ans_iter, boxes, idx = manual_batch_from_iid(question, iid, dataset)
+                img_feat_iter, ques_ix_iter, ans_iter, img_feats, idx = batch
+                # img_feat_iter, ques_ix_iter, ans_iter, boxes, idx = manual_batch(question, iid, dataset)
 
                 iid, q, qid = [str(item) for item in dataloader.dataset.ques_list[idx].values()]
-                if len(iid) < 6:
-                    l_iid = len(iid)
-                    iid = '0' * (6 - l_iid) + iid
-                im_file = f'{os.getcwd()}/datasets/{task}2014/COCO_{task}2014_000000{iid}.jpg'
-                if exists(im_file):
-                    img_feat_iter = img_feat_iter.cuda()
-                    ques_ix_iter = ques_ix_iter.cuda()
-                    # img_feat: [B, 100, 512]
-                    logits, v_feat, v_mask, v_w, q_feat, q_mask, q_w, a = net(
-                        img_feat_iter, ques_ix_iter)  # lang_feat: [B, 14, 512]
-                    pred_np = logits.cpu().data.numpy()
-                    pred_argmax = np.argmax(pred_np, axis=1)
-                    topk_preds = pred_np[0].argsort()[-4:][::-1]
+                if qid in qid_list:
+                    if len(iid) < 6:
+                        l_iid = len(iid)
+                        iid = '0' * (6 - l_iid) + iid
+                    im_file = f'{os.getcwd()}/datasets/{task}2014/COCO_{task}2014_000000{iid}.jpg'
+                    if exists(im_file):
+                        img_feat_iter = img_feat_iter.cuda()
+                        ques_ix_iter = ques_ix_iter.cuda()
+                        # img_feat: [B, 100, 512]
+                        logits, v_feat, v_mask, v_w, q_feat, q_mask, q_w, a = net(
+                            img_feat_iter, ques_ix_iter)  # lang_feat: [B, 14, 512]
+                        pred_np = logits.cpu().data.numpy()
+                        pred_argmax = np.argmax(pred_np, axis=1)
+                        topk_preds = pred_np[0].argsort()[-4:][::-1]
 
-                    # Save the answer index
-                    if pred_argmax.shape[0] != self.opt.eval_batch_size:
-                        pred_argmax = np.pad(
-                            pred_argmax,
-                            (0, self.opt.eval_batch_size - pred_argmax.shape[0]),
-                            mode='constant',
-                            constant_values=-1
-                        )
+                        # Save the answer index
+                        if pred_argmax.shape[0] != self.opt.eval_batch_size:
+                            pred_argmax = np.pad(
+                                pred_argmax,
+                                (0, self.opt.eval_batch_size - pred_argmax.shape[0]),
+                                mode='constant',
+                                constant_values=-1
+                            )
 
-                    # ans_ix_list.append(pred_argmax)
-                    # pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
-                    preds = [dataloader.dataset.ix_to_ans[str(item)] for item in topk_preds]
-                    ans = [item['answer'] for item in dataloader.dataset.ans_list[idx]['answers']]
+                        # pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
+                        preds = [dataloader.dataset.ix_to_ans[str(item)] for item in topk_preds]
+                        ans = [item['answer'] for item in dataloader.dataset.ans_list[idx]['answers']]
 
-                    qq, qa, va_values, va_indices, vv, vq = calc_mats_v2(v_feat[0], 
-                        v_mask[0], v_w[0], q_feat[0], q_mask[0], q_w[0], a)
-                    plot_boxesv2(im_file, iid, q, preds, ans, boxes, 
-                        qq, qa, va_values, va_indices, vv, vq)
+                        qq, qa, va_values, va_indices, vv, vq = calc_mats_v2(v_feat[0], 
+                            v_mask[0], v_w[0], q_feat[0], q_mask[0], q_w[0], a)
+                        plot_boxesv2(im_file, iid, q, preds, ans, img_feats['bbox'][0], 
+                            qq, qa, va_values, va_indices, vv, vq)
 
     # Evaluation
     def eval(self, dataset, state_dict=None, valid=False):
@@ -738,34 +736,35 @@ def plot_boxesv2(im_file, iid, q, preds, ans, boxes, qq, qa, va_values, va_indic
     ax2 = fig.add_subplot(gs[2:, :2])
     ax2.imshow(empty_im)
     ax2.axis('off')
-    
-    ax3 = fig.add_subplot(gs[:2, :2])
-    ax3.imshow(empty_im)
-    ax3.axis('off')
-
-    q_words = q.split(' ')
-    qa_weights = qa.detach().cpu().numpy()
-    qa_weights = qa_weights / qa_weights.max()
-
     x0, y0 = 0.01, 0.4
     q_cap = f'q: {q}'
     t0 = fig.text(x0, y0, q_cap, wrap=True)
 
-    x1, y1 = 0.01, 0.2
+    x1, y1 = 0.01, 0.15
     a_cap = f'a: {ans}'
     t1 = fig.text(x1, y1, a_cap, wrap=True)
 
-    t_x, t_y = 0.5, 0.4
+    q_words = q.split(' ')
+    qa_weights = qa.detach().cpu().numpy()
+    qa_weights = qa_weights / qa_weights.max()
+    ax3 = fig.add_subplot(gs[2:, 2:])
+    ax3.imshow(empty_im)
+    ax3.axis('off')
+
+    t_x, t_y = 0.5, 0.37
     if len(q_words) > 14:
         q_words = q_words[:14]
     for i, w_q in enumerate(q_words):
         if i < len(qa_weights):
-            t2 = fig.text(t_x, t_y, f'{w_q} ', alpha=qa_weights[i][0])
+            t2 = fig.text(t_x, t_y, f'{w_q} ', alpha=qa_weights[i][0], wrap=True)
             bb = t2.get_window_extent(renderer=r)
             t_x += bb.width / im.shape[1]
+            # if t_x >= im.shape[1]:
+            #     t_y -= bb.height
+            #     t_x = 0.5
 
-    x, y = 0.5, 0.29
-    caption2 = f'preds: {preds}'
+    x, y = 0.5, 0.25
+    caption2 = f'p: {preds}'
     t3 = fig.text(x, y, f'{caption2}', wrap=True)
     f1 = os.path.join(os.getcwd(), f'results/val_imgs/{iid}.jpg')
     plt.savefig(f1)
@@ -816,7 +815,7 @@ def calc_mats_v2(v, v_mask, v_w, q, q_mask, q_w, a):
     return qq_scores, qa_scores, va_values, va_indices, vv_scores, vq_scores
 
 
-def manual_batch_from_iid(q, iid, dataset):
+def manual_batch(q, iid, dataset):
     idx = [dataset.ques_list.index(item) for item in dataset.ques_list if str(item['image_id']) == iid and item['question'] == q]
     idx = idx[0]
     img_feat_iter, ques_ix_iter, ans_iter, img_feats, idx = dataset[idx]
