@@ -63,7 +63,7 @@ class Cfgs(PATH):
         # Define the 'train' 'val' 'test' data split
         # (EVAL_EVERY_EPOCH triggered when set {'train': 'train'})
         self.split = {
-            'train': '',
+            'train': 'train',
             'val': 'val',
             'test': 'test',
         }
@@ -90,7 +90,7 @@ class Cfgs(PATH):
         self.img_feat_pad_size = 100
 
         # Faster-rcnn 2048D features
-        self.img_feat_size = 2048
+        self.img_feat_size = 1024
 
         # Default training batch size: 64
         self.batch_size = 64
@@ -110,7 +110,7 @@ class Cfgs(PATH):
 
         # Set 'external': use external shuffle method to implement training shuffle
         # Set 'internal': use pytorch dataloader default shuffle method
-        self.shuffle_mode = 'external'
+        self.shuffle_mode = 'internal'
 
 
         # ------------------------
@@ -193,7 +193,6 @@ class Cfgs(PATH):
         self.devices = [_ for _ in range(self.n_gpu)]
         # torch.set_num_threads(2)
 
-
         # ------------ Seed setup
         # fix pytorch seed
         torch.manual_seed(self.seed)
@@ -212,7 +211,7 @@ class Cfgs(PATH):
         if self.ckpt_path is not None:
             print('Warning: you are now using CKPT_PATH args, '
                   'CKPT_VERSION and CKPT_EPOCH will not work')
-            self.ckpt_version = self.ckpt_path.split('/')[-1] + '_' + str(random.randint(0, 99999999))
+            self.ckpt_version = self.ckpt_path.split('/')[-1] + '_'
 
 
         # ------------ Split setup

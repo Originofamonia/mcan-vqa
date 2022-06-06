@@ -180,3 +180,19 @@ def proc_ans(ans, ans_to_ix):
 
     return ans_score
 
+def proc_mimic_ans(ans, ans_to_ix):
+    ans_score = np.zeros(ans_to_ix.__len__(), np.float32)
+    ans_prob_dict = {}
+
+    for ans_ in ans['answer']:
+        ans_proc = prep_ans(ans_)
+        if ans_proc not in ans_prob_dict:
+            ans_prob_dict[ans_proc] = 1
+        else:
+            ans_prob_dict[ans_proc] += 1
+
+    for ans_ in ans_prob_dict:
+        if ans_ in ans_to_ix:
+            ans_score[ans_to_ix[ans_]] = ans_prob_dict[ans_]
+
+    return ans_score

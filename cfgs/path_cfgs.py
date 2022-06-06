@@ -14,6 +14,7 @@ class PATH:
 
         # bottom up features root path
         self.feature_path = './datasets/coco_extract/'
+        self.cxr_data_path = f'/home/xinyue/VQA_ReGat/data/mimic/mimic_'
 
         self.init_path()
 
@@ -24,6 +25,19 @@ class PATH:
             'train': self.feature_path + 'train2014/',
             'val': self.feature_path + 'val2014/',
             'test': self.feature_path + 'test2015/',
+        }
+
+        self.cxr_img_feat_path = f'/home/xinyue/VQA_ReGat/data/mimic/cmb_bbox_features_full.hdf5'
+
+        self.mimic_qa_path = {
+            'train': self.cxr_data_path + 'dataset_train_full.pkl',
+            'val': self.cxr_data_path + 'dataset_val_full.pkl',
+            'test': self.cxr_data_path + 'dataset_test_full.pkl',
+        }
+
+        self.mimic_ans_dict_path = {
+            'ans2idx': self.cxr_data_path + 'ans2label_full.pkl',
+            'idx2ans': self.cxr_data_path + 'label2ans_full.pkl',
         }
 
         self.question_path = {
@@ -60,7 +74,6 @@ class PATH:
         if 'ckpts' not in os.listdir('./'):
             os.mkdir('./ckpts')
 
-
     def check_path(self):
         print('Checking dataset ...')
 
@@ -80,3 +93,17 @@ class PATH:
                 exit(-1)
 
         print('check path finished')
+    
+    def check_cxr_path(self):
+        print('Check cxr dataset')
+
+        if not os.path.exists(self.cxr_img_feat_path):
+            print(self.cxr_img_feat_path + 'not exist')
+            exit(-1)
+
+        for mode in self.mimic_qa_path:
+            if not os.path.exists(self.mimic_qa_path[mode]):
+                print(self.mimic_qa_path[mode] + 'not exist')
+                exit(-1)
+
+        print('cxr check path finished')

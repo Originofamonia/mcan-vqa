@@ -16,7 +16,7 @@ import matplotlib.collections as mcoll
 import matplotlib.path as mpath
 from matplotlib.gridspec import GridSpec
 
-from core.data.load_data import CustomDataset, CustomLoader
+from core.data.load_data import CustomDataset, CustomLoader, MIMICDataset
 from core.model.net import Net
 from core.model.optim import get_optim, adjust_lr
 from core.data.data_utils import shuffle_list
@@ -38,7 +38,6 @@ class Execution:
 
             print('Loading validation set for per-epoch evaluation ...')
             # self.dataset_eval = CustomDataset(eval_opt)
-
 
     def train(self, dataset, dataset_eval=None):
 
@@ -68,7 +67,7 @@ class Execution:
 
         # Load checkpoint if resume training
         if self.opt.resume:
-            print(' ========== Resume training')
+            print('Resume training')
 
             if self.opt.ckpt_path is not None:
                 print('Warning: you are now using CKPT_PATH args, '
@@ -97,7 +96,7 @@ class Execution:
             if ('ckpt_' + self.opt.version) in os.listdir(self.opt.ckpts_path):
                 shutil.rmtree(self.opt.ckpts_path + 'ckpt_' + self.opt.version)
 
-            os.mkdir(self.opt.ckpts_path + 'ckpt_' + self.opt.version)
+            os.mkdir(self.opt.ckpt_path + 'ckpt_' + self.opt.version)
 
             optim = get_optim(self.opt, net, data_size)
             start_epoch = 0
@@ -173,7 +172,7 @@ class Execution:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
 
-                    logits, _, _, _ = net(
+                    logits, _, _, _, _, _, _, _ = net(
                         sub_img_feat_iter, sub_ques_ix_iter)
 
                     loss = loss_fn(logits, sub_ans_iter)
@@ -590,10 +589,29 @@ class Execution:
 
 
     def empty_log(self, version):
-        print('Initializing log file ........')
+        print('Initialize log file')
         if (os.path.exists(self.opt.log_path + 'log_run_' + version + '.txt')):
             os.remove(self.opt.log_path + 'log_run_' + version + '.txt')
-        print('Finished!\n')
+        print('Initialize log file finished!\n')
+
+
+class ExecuteCXR(Execution):
+    def __init__(self, opt):
+        """
+        init mimic dataset here
+        """
+        self.opt = opt
+
+        print('Load mimic training set')
+        self.dataset = MIMICDataset(opt)
+
+        self.dataset_eval = None
+        if opt.eval_every_epoch:
+            eval_opt = copy.deepcopy(opt)
+            setattr(eval_opt, 'run_mode', 'val')
+
+            print('Loading validation set for per-epoch evaluation ...')
+            # self.dataset_eval = CustomDataset(eval_opt)
 
 
 def plot_boxes(im_file, iid, q, preds, ans, boxes, qq, qa, va_values, va_indices, vv, vq):
