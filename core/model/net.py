@@ -132,7 +132,5 @@ class Net(nn.Module):
 
     # Masking
     def make_mask(self, feature):
-        return (torch.sum(
-            torch.abs(feature),
-            dim=-1
-        ) == 0).unsqueeze(1).unsqueeze(2)
+        return (torch.sum(torch.abs(feature), 
+            dim=-1) == 0).unsqueeze(1).unsqueeze(2)

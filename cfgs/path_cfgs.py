@@ -57,7 +57,7 @@ class PATH:
         self.pred_path = './results/pred/'
         self.cache_path = './results/cache/'
         self.log_path = './results/log/'
-        self.ckpts_path = './ckpts/'
+        self.ckpt_path = './ckpt/'
 
         if 'result_test' not in os.listdir('./results'):
             os.mkdir('./results/result_test')
@@ -94,8 +94,8 @@ class PATH:
 
         print('check path finished')
     
-    def check_cxr_path(self):
-        print('Check cxr dataset')
+    def check_mimic_path(self):
+        print('Check MIMIC VQA dataset')
 
         if not os.path.exists(self.cxr_img_feat_path):
             print(self.cxr_img_feat_path + 'not exist')
@@ -106,4 +106,4 @@ class PATH:
                 print(self.mimic_qa_path[mode] + 'not exist')
                 exit(-1)
 
-        print('cxr check path finished')
+        print('MIMIC check path finished')

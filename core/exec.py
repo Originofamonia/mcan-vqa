@@ -15,8 +15,9 @@ from matplotlib.patches import Rectangle
 import matplotlib.collections as mcoll
 import matplotlib.path as mpath
 from matplotlib.gridspec import GridSpec
+from sklearn.metrics import roc_auc_score
 
-from core.data.load_data import CustomDataset, CustomLoader, MIMICDataset
+from core.data.load_data import CustomDataset, CustomLoader, MIMICDatasetBase, MIMICDatasetSplit
 from core.model.net import Net
 from core.model.optim import get_optim, adjust_lr
 from core.data.data_utils import shuffle_list
@@ -75,7 +76,7 @@ class Execution:
 
                 path = self.opt.ckpt_path
             else:
-                path = self.opt.ckpts_path + \
+                path = self.opt.ckpt_path + \
                        'ckpt_' + self.opt.ckpt_version + \
                        '/epoch' + str(self.opt.ckpt_epoch) + '.pkl'
 
@@ -93,10 +94,10 @@ class Execution:
             start_epoch = self.opt.ckpt_epoch
 
         else:
-            if ('ckpt_' + self.opt.version) in os.listdir(self.opt.ckpts_path):
-                shutil.rmtree(self.opt.ckpts_path + 'ckpt_' + self.opt.version)
+            if ('ckpt_' + self.opt.seed) in os.listdir(self.opt.ckpt_path):
+                shutil.rmtree(self.opt.ckpt_path + 'ckpt_' + self.opt.seed)
 
-            os.mkdir(self.opt.ckpt_path + 'ckpt_' + self.opt.version)
+            os.mkdir(self.opt.ckpt_path + 'ckpt_' + self.opt.seed)
 
             optim = get_optim(self.opt, net, data_size)
             start_epoch = 0
@@ -131,7 +132,7 @@ class Execution:
             # Save log information
             logfile = open(
                 self.opt.log_path +
-                'log_run_' + self.opt.version + '.txt',
+                'log_run_' + self.opt.seed + '.txt',
                 'a+'
             )
             logfile.write(
@@ -171,7 +172,6 @@ class Execution:
                         ans_iter[accu_step * self.opt.sub_batch_size:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
-
                     logits, _, _, _, _, _, _, _ = net(
                         sub_img_feat_iter, sub_ques_ix_iter)
 
@@ -179,7 +179,7 @@ class Execution:
                     # only mean-reduction needs be divided by grad_accu_steps
                     # removing this line wouldn't change our results because the speciality of Adam optimizer,
                     # but would be necessary if you use SGD optimizer.
-                    # loss /= self.__C.GRAD_ACCU_STEPS
+                    # loss /= self.opt.GRAD_ACCU_STEPS
                     loss.backward()
                     loss_sum += loss.cpu().data.numpy() * self.opt.grad_accu_steps
 
@@ -190,7 +190,7 @@ class Execution:
                             mode_str = self.opt.split['train'] + '->' + self.opt.split['test']
 
                         print("\r[version %s][epoch %2d][step %4d/%4d][%s] loss: %.4f, lr: %.2e" % (
-                            self.opt.version,
+                            self.opt.seed,
                             epoch + 1,
                             step,
                             int(data_size / self.opt.batch_size),
@@ -223,21 +223,6 @@ class Execution:
 
             epoch_finish = epoch + 1
 
-            # Save checkpoint
-            state = {
-                'state_dict': net.state_dict(),
-                'optimizer': optim.optimizer.state_dict(),
-                'lr_base': optim.lr_base
-            }
-
-            torch.save(
-                state,
-                self.opt.ckpts_path +
-                'ckpt_' + self.opt.version +
-                '/epoch' + str(epoch_finish) +
-                '.pkl'
-            )
-
             # Logging
             logfile = open(
                 self.opt.log_path +
@@ -263,13 +248,27 @@ class Execution:
 
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
+        
+        # Save checkpoint
+        state = {
+            'state_dict': net.state_dict(),
+            'optimizer': optim.optimizer.state_dict(),
+            'lr_base': optim.lr_base
+        }
+        torch.save(
+                state,
+                self.opt.ckpt_path +
+                'ckpt_' + self.opt.seed +
+                '/epoch' + str(epoch_finish) +
+                '.pkl'
+            )
 
     def visualize(self, dataset, state_dict=None, valid=False):
         """
         plot 1. img+box; 2. q-q; 3. v-v; 4. v-q; 5. v-a; 6. q-a.
         """
         # Load parameters
-        path = f'{self.opt.ckpts_path}epoch{str(self.opt.ckpt_epoch)}_512.pkl'
+        path = f'{self.opt.ckpt_path}epoch{str(self.opt.ckpt_epoch)}_512.pkl'
 
         val_ckpt_flag = False
         if state_dict is None:
@@ -370,8 +369,7 @@ class Execution:
 
             path = self.opt.ckpt_path
         else:
-            path = self.opt.ckpts_path + \
-                    'epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+            return
 
         val_ckpt_flag = False
         if state_dict is None:
@@ -459,24 +457,24 @@ class Execution:
             if val_ckpt_flag:
                 result_eval_file = \
                     self.opt.cache_path + \
-                    'result_run_' + self.opt.ckpt_version + \
+                    'result_run_' + self.opt.seed + \
                     '.json'
             else:
                 result_eval_file = \
                     self.opt.cache_path + \
-                    'result_run_' + self.opt.version + \
+                    'result_run_' + self.opt.seed + \
                     '.json'
 
         else:
             if self.opt.ckpt_path is not None:
                 result_eval_file = \
                     self.opt.result_path + \
-                    'result_run_' + self.opt.ckpt_version + \
+                    'result_run_' + self.opt.seed + \
                     '.json'
             else:
                 result_eval_file = \
                     self.opt.result_path + \
-                    'result_run_' + self.opt.ckpt_version + \
+                    'result_run_' + self.opt.seed + \
                     '_epoch' + str(self.opt.ckpt_epoch) + \
                     '.json'
 
@@ -490,12 +488,12 @@ class Execution:
             if self.opt.ckpt_path is not None:
                 ensemble_file = \
                     self.opt.pred_path + \
-                    'result_run_' + self.opt.ckpt_version + \
+                    'result_run_' + self.opt.seed + \
                     '.json'
             else:
                 ensemble_file = \
                     self.opt.pred_path + \
-                    'result_run_' + self.opt.ckpt_version + \
+                    'result_run_' + self.opt.seed + \
                     '_epoch' + str(self.opt.ckpt_epoch) + \
                     '.json'
 
@@ -557,13 +555,13 @@ class Execution:
             else:
                 print('Write to log file: {}'.format(
                     self.opt.log_path +
-                    'log_run_' + self.opt.version + '.txt',
+                    'log_run_' + self.opt.seed + '.txt',
                     'a+')
                 )
 
                 logfile = open(
                     self.opt.log_path +
-                    'log_run_' + self.opt.version + '.txt',
+                    'log_run_' + self.opt.seed + '.txt',
                     'a+'
                 )
 
@@ -573,20 +571,15 @@ class Execution:
             logfile.write("\n\n")
             logfile.close()
 
-
     def run(self, run_mode):
         if run_mode == 'train':
-            self.empty_log(self.opt.version)
+            self.empty_log(self.opt.seed)
             self.train(self.dataset, self.dataset_eval)
         elif run_mode == 'val':
-            # self.eval(self.dataset, valid=True)
-            self.visualize(self.dataset, valid=True)
+            self.eval(self.dataset, valid=True)
+            # self.visualize(self.dataset, valid=True)
         elif run_mode == 'test':
             self.eval(self.dataset)
-
-        else:
-            exit(-1)
-
 
     def empty_log(self, version):
         print('Initialize log file')
@@ -595,7 +588,7 @@ class Execution:
         print('Initialize log file finished!\n')
 
 
-class ExecuteCXR(Execution):
+class ExecuteMIMIC(Execution):
     def __init__(self, opt):
         """
         init mimic dataset here
@@ -603,21 +596,88 @@ class ExecuteCXR(Execution):
         self.opt = opt
 
         print('Load mimic training set')
-        self.dataset = MIMICDataset(opt)
+        self.dataset = MIMICDatasetSplit(opt)
 
-        self.dataset_eval = None
-        if opt.eval_every_epoch:
-            eval_opt = copy.deepcopy(opt)
-            setattr(eval_opt, 'run_mode', 'val')
+        eval_opt = copy.deepcopy(opt)
+        setattr(eval_opt, 'run_mode', 'val')
+        print('Load validation set for evaluation ...')
+        self.dataset_eval = MIMICDatasetSplit(eval_opt)
 
-            print('Loading validation set for per-epoch evaluation ...')
-            # self.dataset_eval = CustomDataset(eval_opt)
+        test_opt = copy.deepcopy(eval_opt)
+        setattr(test_opt, 'run_mode', 'test')
+        print('Load test set for evaluation ...')
+        self.dataset_test = MIMICDatasetSplit(test_opt)
+    
+    def run(self, run_mode):
+        if run_mode == 'train':
+            self.empty_log(self.opt.seed)
+            self.train(self.dataset,)
+        elif run_mode == 'val':
+            self.eval(self.dataset_eval)
+            # self.visualize(self.dataset, valid=True)
+        elif run_mode == 'test':
+            self.eval(self.dataset_test)
+    
+    def eval(self, dataset):
+        """
+        eval on MIMIC val/test dataset
+        """
+        # load model
+        path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
+        state_dict = torch.load(path)['state_dict']
+        # data_size = dataset.data_size
+        token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        pretrained_emb = dataset.pretrained_emb
+
+        net = Net(self.opt, pretrained_emb, token_size, ans_size)
+        net.cuda()
+        net.eval()
+
+        if self.opt.n_gpu > 1:
+            net = nn.DataParallel(net, device_ids=self.opt.devices)
+
+        net.load_state_dict(state_dict)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.opt.eval_batch_size,
+            shuffle=False,
+            num_workers=self.opt.num_workers,
+            pin_memory=True
+        )
+        preds = []
+        targets = []
+
+        for step, batch in enumerate(dataloader):
+            img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx = batch
+            img_feat_iter = img_feat_iter.cuda()
+            ques_ix_iter = ques_ix_iter.cuda()
+
+            results = net(
+                img_feat_iter,
+                ques_ix_iter
+            )
+            logits, _, _, _, _, _, _, _ = results  # [B, 15]
+            preds.append(logits.detach().cpu().numpy())
+            targets.append(ans_iter.detach().cpu().numpy())
+        
+        targets = np.vstack(targets)
+        preds = np.vstack(preds)
+        try:
+            roc_auc = roc_auc_score(targets, preds, average=None)
+            print(f'per class ROC: {roc_auc}')
+            
+        except:
+            print(f"except in {self.opt.run_mode}")
+        # macro_roc_auc = roc_auc_score(targets, preds, average="macro")
+        # print(macro_roc_auc)
 
 
 def plot_boxes(im_file, iid, q, preds, ans, boxes, qq, qa, va_values, va_indices, vv, vq):
     """
     https://matplotlib.org/stable/gallery/images_contours_and_fields/image_annotated_heatmap.html
-    TODO: plot all 6 figures, put make axs in here
+    plot all 6 figures, put make axs in here
     """
     if type(preds) is str:
         pred = preds

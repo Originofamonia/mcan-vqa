@@ -150,9 +150,9 @@ class CustomDataset(Dataset):
         return self.data_size
 
 
-class MIMICDataset(Dataset):
+class MIMICDatasetBase(Dataset):
     """
-    MIMIC VQA dataset
+    MIMIC dataset base: includes everything but (train/val/test) qa pickles
     """
     def __init__(self, opt) -> None:
         super().__init__()
@@ -168,15 +168,8 @@ class MIMICDataset(Dataset):
         self.semantic_adj_matrix = f1['semantic_adj_matrix']  # [377k, 100, 100]
         self.spatial_features = f1['spatial_features']  # [377k, 60, 6]
 
-        with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
-            self.qa = pickle.load(f2)  # qa pairs
-
         self.v_dim = self.image_features.chunks[-1]  # visual feat dim
         self.s_dim = self.spatial_features.chunks[-1]  # spatial dim
-
-        self.token_to_ix, self.pretrained_emb = tokenize(self.qa, opt.use_glove)
-        self.token_size = self.token_to_ix.__len__()
-        print('== Question token vocab size:', self.token_size)
 
         with open(opt.mimic_ans_dict_path['ans2idx'], 'rb') as f3:
             self.ans_to_ix = pickle.load(f3)
@@ -184,9 +177,24 @@ class MIMICDataset(Dataset):
         with open(opt.mimic_ans_dict_path['idx2ans'], 'rb') as f4:
             self.ix_to_ans = pickle.load(f4)
         self.ans_size = self.ans_to_ix.__len__()
-        self.data_size = self.qa.__len__()
+        
         print('== Answer vocab size (occurr more than {} times):'.format(8), self.ans_size)
-        print('load mimic dataset finished.')
+        print('load mimic base dataset finished.')
+
+
+class MIMICDatasetSplit(MIMICDatasetBase):
+    """
+    train/val/test split of MIMIC QA dataset
+    """
+    def __init__(self, opt) -> None:
+        super().__init__(opt)
+        with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
+            self.qa = pickle.load(f2)  # qa pairs
+        
+        self.token_to_ix, self.pretrained_emb = tokenize(self.qa, opt.use_glove)
+        self.token_size = self.token_to_ix.__len__()
+        self.data_size = self.qa.__len__()
+        print('== Question token vocab size:', self.token_size)
     
     def __getitem__(self, idx):
         img_feat_iter = np.zeros(1)
@@ -194,49 +202,38 @@ class MIMICDataset(Dataset):
         ans_iter = np.zeros(1)
 
         qa = self.qa[idx]
-        raw_question = qa["question"]
-        image_id = qa["dicom_id"]
+        # raw_question = qa["question"]
+        # image_id = qa["dicom_id"]
 
-        # Process ['train'] and ['val', 'test'] respectively
         if self.opt.run_mode in ['train']:
-            # Load the run data from list
-            # ans = qa['answer']['answer']
-            # ques = qa['question']
-
-            img_feat_x = np.array(self.image_features[qa['image']])
-            img_feat_iter = pad_img_feat(img_feat_x, self.opt.img_feat_pad_size)  # done
-            boxes = pad_img_feat(self.image_bb[qa['image']], self.opt.img_feat_pad_size)  # done
+            img_feats = np.array(self.image_features[qa['image']])
+            img_feat_iter = pad_img_feat(img_feats, self.opt.img_feat_pad_size)
+            # boxes = pad_img_feat(self.image_bb[qa['image']], self.opt.img_feat_pad_size)
 
             # Process question
-            ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)  # done
+            ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
 
             # Process answer
             ans_iter = proc_mimic_ans(qa['answer'], self.ans_to_ix)
+
             return torch.from_numpy(img_feat_iter), \
                torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
-               torch.from_numpy(boxes), torch.tensor([idx]), self.opt.run_mode
+               torch.tensor([idx])
 
-        else:
-            # Load the run data from list
-            ques = self.ques_list[idx]
-
-            # # Process image feature from (.npz) file
-            # img_feat = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
-            # img_feat_x = img_feat['x'].transpose((1, 0))
-            # Process image feature from (.npz) file
-            if self.opt.preload:
-                img_feat_x = self.iid_to_img_feat[str(ques['image_id'])]
-            else:
-                img_feats = np.load(self.iid_to_img_feat_path[str(ques['image_id'])])
-                img_feat_x = img_feats['x'].transpose((1, 0))
-            img_feat_iter = pad_img_feat(img_feat_x, self.opt.img_feat_pad_size)
+        else:  # ['val', 'test']
+            img_feats = np.array(self.image_features[qa['image']])
+            img_feat_iter = pad_img_feat(img_feats, self.opt.img_feat_pad_size)
+            boxes = pad_img_feat(self.image_bb[qa['image']], self.opt.img_feat_pad_size)
 
             # Process question
-            ques_ix_iter = proc_ques(ques, self.token_to_ix, self.opt.max_token)
+            ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
+
+            # Process answer
+            ans_iter = proc_mimic_ans(qa['answer'], self.ans_to_ix)
             # only works for batchsize=1
             return torch.from_numpy(img_feat_iter), \
                 torch.from_numpy(ques_ix_iter), \
-                torch.from_numpy(ans_iter), img_feats, idx
+                torch.from_numpy(ans_iter), img_feats, boxes, torch.tensor([idx])
 
 
     def __len__(self):
@@ -259,16 +256,18 @@ class CustomLoader(DataLoader):
         super().__init__(**self.init_kwargs)
 
     @staticmethod
-    def collate_fn(data):
-        img_feat_iter, ques_ix_iter, ans_iter, bbox, idx, mode = zip(*data)
-        img_feat_iter = torch.stack(img_feat_iter, dim=0)
-        ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
-        ans_iter = torch.stack(ans_iter, dim=0)
-        idx = torch.stack(idx, dim=0)
-        if mode[0] == 'train':
-            # bbox = torch.stack(bbox, dim=0)
+    def collate_fn(self, data):
+        if self.opt.run_mode in ['train']:
+            img_feat_iter, ques_ix_iter, ans_iter, idx = zip(*data)
+            img_feat_iter = torch.stack(img_feat_iter, dim=0)
+            ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
+            ans_iter = torch.stack(ans_iter, dim=0)
+            idx = torch.stack(idx, dim=0)
             return img_feat_iter, ques_ix_iter, ans_iter, idx
-        elif mode[0] == 'val':
-            return img_feat_iter, ques_ix_iter, ans_iter, bbox, idx        
         else:
-            return
+            img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx = zip(*data)
+            img_feat_iter = torch.stack(img_feat_iter, dim=0)
+            ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
+            ans_iter = torch.stack(ans_iter, dim=0)
+            idx = torch.stack(idx, dim=0)
+            return img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx

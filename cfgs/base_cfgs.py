@@ -21,7 +21,7 @@ class Cfgs(PATH):
         self.gpu = '0,1'
 
         # Set RNG For CPU And GPUs
-        self.seed = random.randint(0, 99999999)
+        self.seed = 444
 
         # -------------------------
         # ---- Version Control ----
@@ -39,7 +39,7 @@ class Cfgs(PATH):
         self.ckpt_epoch = 0
 
         # Absolutely checkpoint path, 'CKPT_VERSION' and 'CKPT_EPOCH' will be overridden
-        self.ckpt_path = None
+        self.ckpt_path = '/drive/qiyuan/mcan-vqa'
 
         # Print loss every step
         self.verbose = True

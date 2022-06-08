@@ -11,7 +11,7 @@ from matplotlib.patches import Rectangle
 from matplotlib import colors
 
 from cfgs.base_cfgs import Cfgs
-from core.exec import ExecuteCXR
+from core.exec import ExecuteMIMIC
 import argparse, yaml
 
 
@@ -58,7 +58,7 @@ def parse_args():
                       help='max training epoch',
                       type=int)
 
-    parser.add_argument('--preload',
+    parser.add_argument('--preload', default=False,
                       help='pre-load the features into memory'
                            'to increase the I/O speed',
                       type=bool)
@@ -88,11 +88,12 @@ def parse_args():
                       type=int)
 
     parser.add_argument('--ckpt_path',
-                      help='load checkpoint path, we '
-                           'recommend that you use '
-                           'ckpt_version and ckpt_epoch '
-                           'instead',
-                      type=str)
+                        help='load checkpoint path, we '
+                        'recommend that you use '
+                        'ckpt_version and ckpt_epoch '
+                        'instead',
+                        default='/drive/qiyuan/mcan-vqa',
+                        type=str)
 
     parser.add_argument('--grad_accu_steps',
                       help='reduce gpu memory usage',
@@ -106,7 +107,7 @@ def parse_args():
                       help='use pin memory',
                       type=bool)
 
-    parser.add_argument('--verbose',
+    parser.add_argument('--verbose', default=True,
                       help='verbose print',
                       type=bool)
 
@@ -139,9 +140,13 @@ def main():
     print('Hyper Parameters:')
     print(opt)
 
-    opt.check_cxr_path()
+    opt.check_mimic_path()
 
-    execution = ExecuteCXR(opt)
+    execution = ExecuteMIMIC(opt)
+    execution.run(opt.run_mode)  # train
+    setattr(opt, 'run_mode', 'val')
+    execution.run(opt.run_mode)
+    setattr(opt, 'run_mode', 'test')
     execution.run(opt.run_mode)
 
 
