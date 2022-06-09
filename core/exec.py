@@ -28,17 +28,18 @@ from utils.vqaEval import VQAEval
 class Execution:
     def __init__(self, opt):
         self.opt = opt
-
+        self.model = None
         print('Loading training set ........')
         self.dataset = CustomDataset(opt)
 
         self.dataset_eval = None
         if opt.eval_every_epoch:
-            eval_opt = copy.deepcopy(opt)
-            setattr(eval_opt, 'run_mode', 'val')
+            test_opt = copy.deepcopy(opt)
+            setattr(test_opt, 'run_mode', 'test')
 
             print('Loading validation set for per-epoch evaluation ...')
-            # self.dataset_eval = CustomDataset(eval_opt)
+            print('Load test set for evaluation ...')
+            self.dataset_test = MIMICDatasetSplit(test_opt)
 
     def train(self, dataset, dataset_eval=None):
 
@@ -49,18 +50,18 @@ class Execution:
         pretrained_emb = dataset.pretrained_emb
 
         # Define the MCAN model
-        net = Net(
+        self.model = Net(
             self.opt,
             pretrained_emb,
             token_size,
             ans_size
         )
-        net.cuda()
-        net.train()
-
+        self.model.cuda()
+        self.model.train()
+        
         # Define the multi-gpu training if needed
         if self.opt.n_gpu > 1:
-            net = nn.DataParallel(net, device_ids=self.opt.devices)
+            self.model = nn.DataParallel(self.model, device_ids=self.opt.devices)
 
         # Define the binary cross entropy loss
         # loss_fn = torch.nn.BCELoss(size_average=False).cuda()
@@ -84,10 +85,10 @@ class Execution:
             print('Loading ckpt {}'.format(path))
             ckpt = torch.load(path)
             print('Finish!')
-            net.load_state_dict(ckpt['state_dict'])
+            self.model.load_state_dict(ckpt['state_dict'])
 
             # Load the optimizer paramters
-            optim = get_optim(self.opt, net, data_size, ckpt['lr_base'])
+            optim = get_optim(self.opt, self.model, data_size, ckpt['lr_base'])
             optim._step = int(data_size / self.opt.batch_size * self.opt.ckpt_epoch)
             optim.optimizer.load_state_dict(ckpt['optimizer'])
 
@@ -101,11 +102,11 @@ class Execution:
 
             os.mkdir(ckpt_path_full)
 
-            optim = get_optim(self.opt, net, data_size)
+            optim = get_optim(self.opt, self.model, data_size)
             start_epoch = 0
 
         loss_sum = 0
-        named_params = list(net.named_parameters())
+        named_params = list(self.model.named_parameters())
         grad_norm = np.zeros(len(named_params))
 
         # Define multi-thread dataloader
@@ -127,23 +128,19 @@ class Execution:
             # pin_memory=self.opt.pin_mem,
             # drop_last=True
         )
+        
+        # Save log information
+        logfile = open(
+            self.opt.log_path +
+            f'log_run_{str(self.opt.seed)}.txt',
+            'a+'
+        )
+        logfile.write(
+            f"NowTime: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
 
         # Training script
         for epoch in range(start_epoch, self.opt.max_epoch):
-
-            # Save log information
-            logfile = open(
-                self.opt.log_path +
-                'log_run_' + str(self.opt.seed) + '.txt',
-                'a+'
-            )
-            logfile.write(
-                'nowTime: ' +
-                datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') +
-                '\n'
-            )
-            logfile.close()
-
             # Learning Rate Decay
             if epoch in self.opt.lr_decay_list:
                 adjust_lr(optim, self.opt.lr_decay_rate)
@@ -174,7 +171,7 @@ class Execution:
                         ans_iter[accu_step * self.opt.sub_batch_size:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
-                    logits, _, _, _, _, _, _, _ = net(
+                    logits, _, _, _, _, _, _, _ = self.model(
                         sub_img_feat_iter, sub_ques_ix_iter)
 
                     loss = loss_fn(logits, sub_ans_iter)
@@ -203,7 +200,7 @@ class Execution:
                 # Gradient norm clipping
                 if self.opt.grad_norm_clip > 0:
                     nn.utils.clip_grad_norm_(
-                        net.parameters(),
+                        self.model.parameters(),
                         self.opt.grad_norm_clip
                     )
 
@@ -220,48 +217,41 @@ class Execution:
                 optim.step()
 
             time_end = time.time()
-            print('Finished in {}s'.format(int(time_end-time_start)))
+            print('Train epoch finished in {}s'.format(int(time_end-time_start)))
 
             epoch_finish = epoch + 1
 
             # Logging
-            logfile = open(
-                self.opt.log_path +
-                'log_run_' + self.opt.version + '.txt',
-                'a+'
-            )
-
             logfile.write(
-                'epoch = ' + str(epoch_finish) +
-                '  loss = ' + str(loss_sum / data_size) +
-                '\n' +
-                'lr = ' + str(optim._rate) +
-                '\n\n'
+                f'epoch = {str(epoch_finish)}; loss = {str(loss_sum / data_size)}; ' +
+                f'lr = {str(optim._rate)}\n\n'
             )
-            logfile.close()
 
             # Eval after every epoch
-            if dataset_eval is not None:
-                self.eval(
-                    dataset_eval,
-                    state_dict=net.state_dict(),
-                    valid=True)
-
+            if self.dataset_test is not None:
+                perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                logfile.write(
+                    f"perclass_roc: {perclass_roc};\n" +
+                    f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                )
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
-        
+
         # Save checkpoint
         state = {
-            'state_dict': net.state_dict(),
+            'state_dict': self.model.state_dict(),
             'optimizer': optim.optimizer.state_dict(),
             'lr_base': optim.lr_base
         }
-        torch.save(
+        try:
+            torch.save(
                 state,
-                self.opt.ckpt_path +
-                'ckpt_' + str(self.opt.seed) +
-                '/epoch' + str(epoch_finish) + '.pt'
+                os.path.join(self.opt.ckpt_path, 'ckpt_' + str(self.opt.seed) +
+                '/epoch' + str(epoch_finish) + '.pt')
             )
+        except:
+            print('error in saving model')
+        return self.model
 
     def visualize(self, dataset, state_dict=None, valid=False):
         """
@@ -359,285 +349,28 @@ class Execution:
                         plot_boxesv2(im_file, iid, q, preds, ans, img_feats['bbox'][0], 
                             qq, qa, va_values, va_indices, vv, vq)
 
-    # Evaluation
-    def eval(self, dataset, state_dict=None, valid=False):
-
-        # Load parameters
-        if self.opt.ckpt_path is not None:
-            print('Warning: you are now using CKPT_PATH args, '
-                  'CKPT_VERSION and CKPT_EPOCH will not work')
-
-            path = self.opt.ckpt_path
-        else:
-            return
-
-        val_ckpt_flag = False
-        if state_dict is None:
-            val_ckpt_flag = True
-            print('Loading ckpt {}'.format(path))
-            state_dict = torch.load(path)['state_dict']
-            print('load model finished.')
-
-        # Store the prediction list
-        qid_list = [ques['question_id'] for ques in dataset.ques_list]
-        ans_ix_list = []
-        pred_list = []
-
-        data_size = dataset.data_size
-        token_size = dataset.token_size
-        ans_size = dataset.ans_size
-        pretrained_emb = dataset.pretrained_emb
-
-        net = Net(self.opt, pretrained_emb, token_size, ans_size)
-        net.cuda()
-        net.eval()
-
-        if self.opt.n_gpu > 1:
-            net = nn.DataParallel(net, device_ids=self.opt.devices)
-
-        net.load_state_dict(state_dict)
-
-        dataloader = DataLoader(
-            dataset,
-            batch_size=self.opt.eval_batch_size,
-            shuffle=False,
-            num_workers=self.opt.num_workers,
-            pin_memory=True
-        )
-
-        for step, batch in enumerate(dataloader):
-            img_feat_iter, ques_ix_iter, ans_iter, idx = batch
-            print("\rEvaluation: [step %4d/%4d]" % (
-                step, int(data_size / self.opt.eval_batch_size),
-            ), end='          ')
-
-            img_feat_iter = img_feat_iter.cuda()
-            ques_ix_iter = ques_ix_iter.cuda()
-
-            logits = net(
-                img_feat_iter,
-                ques_ix_iter
-            )
-            pred_np = logits.cpu().data.numpy()
-            pred_argmax = np.argmax(pred_np, axis=1)
-
-            # Save the answer index
-            if pred_argmax.shape[0] != self.opt.eval_batch_size:
-                pred_argmax = np.pad(
-                    pred_argmax,
-                    (0, self.opt.eval_batch_size - pred_argmax.shape[0]),
-                    mode='constant',
-                    constant_values=-1
-                )
-
-            ans_ix_list.append(pred_argmax)
-            # pred = dataloader.dataset.ix_to_ans[str(pred_argmax[0])]
-
-            # Save the whole prediction vector
-            if self.opt.test_save_pred:
-                if pred_np.shape[0] != self.opt.eval_batch_size:
-                    pred_np = np.pad(
-                        pred_np,
-                        ((0, self.opt.eval_batch_size - pred_np.shape[0]), (0, 0)),
-                        mode='constant',
-                        constant_values=-1
-                    )
-
-                pred_list.append(pred_np)
-
-        ans_ix_list = np.array(ans_ix_list).reshape(-1)
-
-        result = [{
-            'answer': dataset.ix_to_ans[str(ans_ix_list[qix])],  # ix_to_ans(load with json) keys are type of string
-            'question_id': int(qid_list[qix])
-        }for qix in range(qid_list.__len__())]
-
-        # Write the results to result file
-        if valid:
-            if val_ckpt_flag:
-                result_eval_file = \
-                    self.opt.cache_path + \
-                    'result_run_' + self.opt.seed + \
-                    '.json'
-            else:
-                result_eval_file = \
-                    self.opt.cache_path + \
-                    'result_run_' + self.opt.seed + \
-                    '.json'
-
-        else:
-            if self.opt.ckpt_path is not None:
-                result_eval_file = \
-                    self.opt.result_path + \
-                    'result_run_' + self.opt.seed + \
-                    '.json'
-            else:
-                result_eval_file = \
-                    self.opt.result_path + \
-                    'result_run_' + self.opt.seed + \
-                    '_epoch' + str(self.opt.ckpt_epoch) + \
-                    '.json'
-
-            print('Save the result to file: {}'.format(result_eval_file))
-
-        json.dump(result, open(result_eval_file, 'w'))
-
-        # Save the whole prediction vector
-        if self.opt.test_save_pred:
-
-            if self.opt.ckpt_path is not None:
-                ensemble_file = \
-                    self.opt.pred_path + \
-                    'result_run_' + self.opt.seed + \
-                    '.json'
-            else:
-                ensemble_file = \
-                    self.opt.pred_path + \
-                    'result_run_' + self.opt.seed + \
-                    '_epoch' + str(self.opt.ckpt_epoch) + \
-                    '.json'
-
-            print('Save the prediction vector to file: {}'.format(ensemble_file))
-
-            pred_list = np.array(pred_list).reshape(-1, ans_size)
-            result_pred = [{
-                'pred': pred_list[qix],
-                'question_id': int(qid_list[qix])
-            }for qix in range(qid_list.__len__())]
-
-            pickle.dump(result_pred, open(ensemble_file, 'wb+'), protocol=-1)
-
-
-        # Run validation script
-        if valid:
-            # create vqa object and vqaRes object
-            ques_file_path = self.opt.question_path['val']
-            ans_file_path = self.opt.answer_path['val']
-
-            vqa = VQA(ans_file_path, ques_file_path)
-            vqaRes = vqa.loadRes(result_eval_file, ques_file_path)
-
-            # create vqaEval object by taking vqa and vqaRes
-            vqaEval = VQAEval(vqa, vqaRes, n=2)  # n is precision of accuracy (number of places after decimal), default is 2
-
-            # evaluate results
-            """
-            If you have a list of question ids on which you would like to evaluate your results, pass it as a list to below function
-            By default it uses all the question ids in annotation file
-            """
-            vqaEval.evaluate()
-
-            # print accuracies
-            print("\n")
-            print("Overall Accuracy is: %.02f\n" % (vqaEval.accuracy['overall']))
-            # print("Per Question Type Accuracy is the following:")
-            # for quesType in vqaEval.accuracy['perQuestionType']:
-            #     print("%s : %.02f" % (quesType, vqaEval.accuracy['perQuestionType'][quesType]))
-            # print("\n")
-            print("Per Answer Type Accuracy is the following:")
-            for ansType in vqaEval.accuracy['perAnswerType']:
-                print("%s : %.02f" % (ansType, vqaEval.accuracy['perAnswerType'][ansType]))
-            print("\n")
-
-            if val_ckpt_flag:
-                print('Write to log file: {}'.format(
-                    self.opt.log_path +
-                    'log_run_' + self.opt.ckpt_version + '.txt',
-                    'a+')
-                )
-
-                logfile = open(
-                    self.opt.log_path +
-                    'log_run_' + self.opt.ckpt_version + '.txt',
-                    'a+'
-                )
-
-            else:
-                print('Write to log file: {}'.format(
-                    self.opt.log_path +
-                    'log_run_' + self.opt.seed + '.txt',
-                    'a+')
-                )
-
-                logfile = open(
-                    self.opt.log_path +
-                    'log_run_' + self.opt.seed + '.txt',
-                    'a+'
-                )
-
-            logfile.write("Overall Accuracy is: %.02f\n" % (vqaEval.accuracy['overall']))
-            for ansType in vqaEval.accuracy['perAnswerType']:
-                logfile.write("%s : %.02f " % (ansType, vqaEval.accuracy['perAnswerType'][ansType]))
-            logfile.write("\n\n")
-            logfile.close()
-
-    def run(self, run_mode):
-        if run_mode == 'train':
-            self.empty_log(self.opt.seed)
-            self.train(self.dataset, self.dataset_eval)
-        elif run_mode == 'val':
-            self.eval(self.dataset, valid=True)
-            # self.visualize(self.dataset, valid=True)
-        elif run_mode == 'test':
-            self.eval(self.dataset)
-
-    def empty_log(self, version):
-        print('Initialize log file')
-        if (os.path.exists(self.opt.log_path + 'log_run_' + str(version) + '.txt')):
-            os.remove(self.opt.log_path + 'log_run_' + str(version) + '.txt')
-        print('Initialize log file finished!\n')
-
-
-class ExecuteMIMIC(Execution):
-    def __init__(self, opt):
-        """
-        init mimic dataset here
-        """
-        self.opt = opt
-
-        print('Load mimic training set')
-        self.dataset = MIMICDatasetSplit(opt)
-
-        eval_opt = copy.deepcopy(opt)
-        setattr(eval_opt, 'run_mode', 'val')
-        print('Load validation set for evaluation ...')
-        self.dataset_eval = MIMICDatasetSplit(eval_opt)
-
-        test_opt = copy.deepcopy(eval_opt)
-        setattr(test_opt, 'run_mode', 'test')
-        print('Load test set for evaluation ...')
-        self.dataset_test = MIMICDatasetSplit(test_opt)
-    
-    def run(self, run_mode):
-        if run_mode == 'train':
-            self.empty_log(self.opt.seed)
-            self.train(self.dataset,)
-        elif run_mode == 'val':
-            self.eval(self.dataset_eval)
-            # self.visualize(self.dataset, valid=True)
-        elif run_mode == 'test':
-            self.eval(self.dataset_test)
-    
-    def eval(self, dataset):
+    def eval(self, dataset,):
         """
         eval on MIMIC val/test dataset
         """
         # load model
-        path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
-        state_dict = torch.load(path)['state_dict']
+        if self.model:
+            self.model.eval()
+            net = self.model
+        else:
+            net = Net(self.opt, pretrained_emb, token_size, ans_size)
+            net.cuda()
+            net.eval()
+            if self.opt.n_gpu > 1:
+                net = nn.DataParallel(net, device_ids=self.opt.devices)
+            path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
+            state_dict = torch.load(path)['state_dict']
+            net.load_state_dict(state_dict)
+
         # data_size = dataset.data_size
         token_size = dataset.token_size
         ans_size = dataset.ans_size
         pretrained_emb = dataset.pretrained_emb
-
-        net = Net(self.opt, pretrained_emb, token_size, ans_size)
-        net.cuda()
-        net.eval()
-
-        if self.opt.n_gpu > 1:
-            net = nn.DataParallel(net, device_ids=self.opt.devices)
-
-        net.load_state_dict(state_dict)
 
         dataloader = DataLoader(
             dataset,
@@ -665,13 +398,120 @@ class ExecuteMIMIC(Execution):
         targets = np.vstack(targets)
         preds = np.vstack(preds)
         try:
-            roc_auc = roc_auc_score(targets, preds, average=None)
-            print(f'per class ROC: {roc_auc}')
-
+            perclass_roc = roc_auc_score(targets, preds, average=None)
+            print(f'per class ROC: {perclass_roc}')
+            micro_roc = roc_auc_score(targets, preds, average='micro')
+            print(f'micro ROC: {micro_roc}')
+            macro_roc = roc_auc_score(targets, preds, average='macro')
+            print(f'macro ROC: {macro_roc}')
+            return perclass_roc, micro_roc, macro_roc
         except:
             print(f"except in {self.opt.run_mode}")
-        # macro_roc_auc = roc_auc_score(targets, preds, average="macro")
-        # print(macro_roc_auc)
+
+    def run(self, run_mode):
+        if run_mode == 'train':
+            self.empty_log(self.opt.seed)
+            self.train(self.dataset, self.dataset_eval)
+        elif run_mode == 'val':
+            self.eval(self.dataset, valid=True)
+            # self.visualize(self.dataset, valid=True)
+        elif run_mode == 'test':
+            self.eval(self.dataset)
+
+    def empty_log(self, version):
+        print('Initialize log file')
+        if (os.path.exists(self.opt.log_path + 'log_run_' + str(version) + '.txt')):
+            os.remove(self.opt.log_path + 'log_run_' + str(version) + '.txt')
+        print('Initialize log file finished!\n')
+
+
+class ExecuteMIMIC(Execution):
+    def __init__(self, opt):
+        """
+        init mimic dataset here
+        """
+        self.opt = opt
+        self.model = None  # trained model
+        print('Load mimic training set')
+        self.dataset = MIMICDatasetSplit(opt)
+
+        eval_opt = copy.deepcopy(opt)
+        setattr(eval_opt, 'run_mode', 'val')
+        print('Load validation set for evaluation ...')
+        self.dataset_eval = MIMICDatasetSplit(eval_opt)
+
+        test_opt = copy.deepcopy(eval_opt)
+        setattr(test_opt, 'run_mode', 'test')
+        print('Load test set for evaluation ...')
+        self.dataset_test = MIMICDatasetSplit(test_opt)
+    
+    def run(self, run_mode):
+        if run_mode == 'train':
+            self.empty_log(self.opt.seed)
+            self.model = self.train(self.dataset,)
+        elif run_mode == 'val':
+            self.eval(self.dataset_eval)
+            # self.visualize(self.dataset, valid=True)
+        elif run_mode == 'test':
+            self.eval(self.dataset_test)
+    
+    def eval(self, dataset):
+        """
+        eval on MIMIC val/test dataset
+        """
+        # load model
+        if self.model:
+            self.model.eval()
+            net = self.model
+        else:
+            net = Net(self.opt, pretrained_emb, token_size, ans_size)
+            net.cuda()
+            net.eval()
+            if self.opt.n_gpu > 1:
+                net = nn.DataParallel(net, device_ids=self.opt.devices)
+            path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
+            state_dict = torch.load(path)['state_dict']
+            net.load_state_dict(state_dict)
+
+        # data_size = dataset.data_size
+        token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        pretrained_emb = dataset.pretrained_emb
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.opt.eval_batch_size,
+            shuffle=False,
+            num_workers=self.opt.num_workers,
+            pin_memory=True
+        )
+        preds = []
+        targets = []
+
+        for step, batch in enumerate(dataloader):
+            img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx = batch
+            img_feat_iter = img_feat_iter.cuda()
+            ques_ix_iter = ques_ix_iter.cuda()
+
+            results = net(
+                img_feat_iter,
+                ques_ix_iter
+            )
+            logits, _, _, _, _, _, _, _ = results  # [B, 15]
+            preds.append(logits.detach().cpu().numpy())
+            targets.append(ans_iter.detach().cpu().numpy())
+        
+        targets = np.vstack(targets)
+        preds = np.vstack(preds)
+        try:
+            perclass_roc_auc = roc_auc_score(targets, preds, average=None)
+            print(f'per class ROC: {perclass_roc_auc}')
+            micro_roc_auc = roc_auc_score(targets, preds, average='micro')
+            print(f'micro ROC: {micro_roc_auc}')
+            macro_roc_auc = roc_auc_score(targets, preds, average='macro')
+            print(f'macro ROC: {macro_roc_auc}')
+        except:
+            print(f"except in {self.opt.run_mode}")
 
 
 def plot_boxes(im_file, iid, q, preds, ans, boxes, qq, qa, va_values, va_indices, vv, vq):

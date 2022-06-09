@@ -37,7 +37,7 @@ def parse_args():
                            "eval after every epoch",
                       type=str)
 
-    parser.add_argument('--eval_every_epoch', default=False,
+    parser.add_argument('--eval_every_epoch', default=True,
                       help='set True to evaluate the '
                            'val split when an epoch finished'
                            "(only work when train with "
@@ -54,7 +54,7 @@ def parse_args():
                       help='batch size during training',
                       type=int)
 
-    parser.add_argument('--max_epoch', default=30,
+    parser.add_argument('--max_epoch', default=4,
                       help='max training epoch',
                       type=int)
 
@@ -67,7 +67,7 @@ def parse_args():
                       help="gpu select, eg.'0, 1, 2'",
                       type=str)
 
-    parser.add_argument('--seed', default=445,
+    parser.add_argument('--seed', default=444,
                       help='fix random seed',
                       type=int)
 

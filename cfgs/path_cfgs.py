@@ -56,7 +56,7 @@ class PATH:
         self.result_path = './results/result_test/'
         self.pred_path = './results/pred/'
         self.cache_path = './results/cache/'
-        self.log_path = './results/log/'
+        self.log_path = f'/drive/qiyuan/mcan-vqa/'
         self.ckpt_path = './ckpt/'
 
         if 'result_test' not in os.listdir('./results'):
