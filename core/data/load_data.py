@@ -218,7 +218,7 @@ class MIMICDatasetSplit(MIMICDatasetBase):
 
             return torch.from_numpy(img_feat_iter), \
                torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
-               torch.tensor([idx])
+               torch.tensor([idx]), self.opt.run_mode
 
         else:  # ['val', 'test']
             img_feats = np.array(self.image_features[qa['image']])
@@ -232,9 +232,8 @@ class MIMICDatasetSplit(MIMICDatasetBase):
             ans_iter = proc_mimic_ans(qa['answer'], self.ans_to_ix)
             # only works for batchsize=1
             return torch.from_numpy(img_feat_iter), \
-                torch.from_numpy(ques_ix_iter), \
-                torch.from_numpy(ans_iter), img_feats, boxes, torch.tensor([idx])
-
+                torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
+                img_feats, boxes, torch.tensor([idx])
 
     def __len__(self):
         return self.data_size
@@ -256,9 +255,9 @@ class CustomLoader(DataLoader):
         super().__init__(**self.init_kwargs)
 
     @staticmethod
-    def collate_fn(self, data):
-        if self.opt.run_mode in ['train']:
-            img_feat_iter, ques_ix_iter, ans_iter, idx = zip(*data)
+    def collate_fn(data):
+        if data[0][-1] in ['train']:
+            img_feat_iter, ques_ix_iter, ans_iter, idx, _ = zip(*data)
             img_feat_iter = torch.stack(img_feat_iter, dim=0)
             ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
             ans_iter = torch.stack(ans_iter, dim=0)

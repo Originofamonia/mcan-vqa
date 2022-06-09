@@ -27,7 +27,7 @@ def parse_args():
 
     parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
-                      default='small', type=str)
+                      default='large', type=str)
 
     parser.add_argument('--split', dest='train_split',
                       choices=['train', 'train+val', 'train+val+vg'],
@@ -54,7 +54,7 @@ def parse_args():
                       help='batch size during training',
                       type=int)
 
-    parser.add_argument('--max_epoch', default=13,
+    parser.add_argument('--max_epoch', default=30,
                       help='max training epoch',
                       type=int)
 
@@ -67,7 +67,7 @@ def parse_args():
                       help="gpu select, eg.'0, 1, 2'",
                       type=str)
 
-    parser.add_argument('--seed', default=444,
+    parser.add_argument('--seed', default=445,
                       help='fix random seed',
                       type=int)
 

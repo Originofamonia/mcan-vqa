@@ -39,7 +39,7 @@ class Cfgs(PATH):
         self.ckpt_epoch = 0
 
         # Absolutely checkpoint path, 'CKPT_VERSION' and 'CKPT_EPOCH' will be overridden
-        self.ckpt_path = '/drive/qiyuan/mcan-vqa'
+        self.ckpt_path = '/drive/qiyuan/mcan-vqa/'
 
         # Print loss every step
         self.verbose = True
@@ -152,10 +152,10 @@ class Cfgs(PATH):
         self.lr_decay_rate = 0.2
 
         # Learning rate decay at {x, y, z...} epoch
-        self.lr_decay_list = [10, 12]
+        self.lr_decay_list = [10, 20]
 
         # Max training epoch
-        self.max_epoch = 13
+        self.max_epoch = 30
 
         # Gradient clip
         # (default: -1 means not using)

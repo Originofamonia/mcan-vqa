@@ -94,10 +94,12 @@ class Execution:
             start_epoch = self.opt.ckpt_epoch
 
         else:
-            if ('ckpt_' + self.opt.seed) in os.listdir(self.opt.ckpt_path):
-                shutil.rmtree(self.opt.ckpt_path + 'ckpt_' + self.opt.seed)
+            ckpt_path_latter = 'ckpt_' + str(self.opt.seed)
+            ckpt_path_full = os.path.join(self.opt.ckpt_path, ckpt_path_latter)
+            if ckpt_path_latter in os.listdir(self.opt.ckpt_path):
+                shutil.rmtree(ckpt_path_full)
 
-            os.mkdir(self.opt.ckpt_path + 'ckpt_' + self.opt.seed)
+            os.mkdir(ckpt_path_full)
 
             optim = get_optim(self.opt, net, data_size)
             start_epoch = 0
@@ -132,7 +134,7 @@ class Execution:
             # Save log information
             logfile = open(
                 self.opt.log_path +
-                'log_run_' + self.opt.seed + '.txt',
+                'log_run_' + str(self.opt.seed) + '.txt',
                 'a+'
             )
             logfile.write(
@@ -189,8 +191,7 @@ class Execution:
                         else:
                             mode_str = self.opt.split['train'] + '->' + self.opt.split['test']
 
-                        print("\r[version %s][epoch %2d][step %4d/%4d][%s] loss: %.4f, lr: %.2e" % (
-                            self.opt.seed,
+                        print("\r[epoch %2d][step %4d/%4d][%s] loss: %.4f, lr: %.2e" % (
                             epoch + 1,
                             step,
                             int(data_size / self.opt.batch_size),
@@ -258,9 +259,8 @@ class Execution:
         torch.save(
                 state,
                 self.opt.ckpt_path +
-                'ckpt_' + self.opt.seed +
-                '/epoch' + str(epoch_finish) +
-                '.pkl'
+                'ckpt_' + str(self.opt.seed) +
+                '/epoch' + str(epoch_finish) + '.pt'
             )
 
     def visualize(self, dataset, state_dict=None, valid=False):
@@ -583,8 +583,8 @@ class Execution:
 
     def empty_log(self, version):
         print('Initialize log file')
-        if (os.path.exists(self.opt.log_path + 'log_run_' + version + '.txt')):
-            os.remove(self.opt.log_path + 'log_run_' + version + '.txt')
+        if (os.path.exists(self.opt.log_path + 'log_run_' + str(version) + '.txt')):
+            os.remove(self.opt.log_path + 'log_run_' + str(version) + '.txt')
         print('Initialize log file finished!\n')
 
 
@@ -667,7 +667,7 @@ class ExecuteMIMIC(Execution):
         try:
             roc_auc = roc_auc_score(targets, preds, average=None)
             print(f'per class ROC: {roc_auc}')
-            
+
         except:
             print(f"except in {self.opt.run_mode}")
         # macro_roc_auc = roc_auc_score(targets, preds, average="macro")
