@@ -87,13 +87,13 @@ class Cfgs(PATH):
 
         # Max length of extracted faster-rcnn 2048D features
         # (bottom-up and Top-down: https://github.com/peteanderson80/bottom-up-attention)
-        self.img_feat_pad_size = 100
+        self.img_feat_pad_size = 60
 
         # Faster-rcnn 2048D features
-        self.img_feat_size = 1024
+        self.img_feat_size = 1024  # was 2048
 
         # Default training batch size: 64
-        self.batch_size = 64
+        self.batch_size = 256
 
         # Multi-thread I/O
         self.num_workers = 4
@@ -131,7 +131,7 @@ class Cfgs(PATH):
 
         # Dropout rate for all dropout layers
         # (dropout can prevent overfitting： [Dropout: a simple way to prevent neural networks from overfitting])
-        self.dropout_rate = 0.1
+        self.dropout_rate = 0.3
 
         # MLP size in flatten layers
         self.flat_mlp_size = 512
@@ -140,26 +140,25 @@ class Cfgs(PATH):
         self.flat_glimpses = 1
         self.flat_out_size = 512  # was 1024
 
-
         # --------------------------
         # ---- Optimizer Params ----
         # --------------------------
 
         # The base learning rate
-        self.lr_base = 1e-4
+        self.lr_base = 1e-5  # vit is 3e-5
 
         # Learning rate decay ratio
         self.lr_decay_rate = 0.2
 
         # Learning rate decay at {x, y, z...} epoch
-        self.lr_decay_list = [15, 25]
+        self.lr_decay_list = [10, 20]
 
         # Max training epoch
         self.max_epoch = 30
 
         # Gradient clip
         # (default: -1 means not using)
-        self.grad_norm_clip = -1
+        self.grad_norm_clip = 0.3
 
         # Adam optimizer betas and eps
         self.opt_betas = (0.9, 0.98)
@@ -216,8 +215,8 @@ class Cfgs(PATH):
 
         # ------------ Split setup
         self.split['train'] = self.train_split
-        if 'val' in self.split['train'].split('+') or self.run_mode not in ['train']:
-            self.eval_every_epoch = False
+        # if 'val' in self.split['train'].split('+') or self.run_mode not in ['train']:
+        #     self.eval_every_epoch = False
 
         if self.run_mode not in ['test']:
             self.test_save_pred = False

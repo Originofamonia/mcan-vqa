@@ -11,14 +11,13 @@ import numpy as np
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-import matplotlib.collections as mcoll
-import matplotlib.path as mpath
+from tqdm import tqdm
 from matplotlib.gridspec import GridSpec
 from sklearn.metrics import roc_auc_score
+import wandb
 
 from core.data.load_data import CustomDataset, CustomLoader, MIMICDatasetBase, MIMICDatasetSplit
-from core.model.net import Net
+from core.model.net import Net, ClassifierNet
 from core.model.optim import get_optim, adjust_lr
 from core.data.data_utils import shuffle_list
 from utils.vqa import VQA
@@ -29,7 +28,7 @@ class Execution:
     def __init__(self, opt):
         self.opt = opt
         self.model = None
-        print('Loading training set ........')
+        print('Load training set ........')
         self.dataset = CustomDataset(opt)
 
         self.dataset_eval = None
@@ -65,7 +64,7 @@ class Execution:
 
         # Define the binary cross entropy loss
         # loss_fn = torch.nn.BCELoss(size_average=False).cuda()
-        loss_fn = torch.nn.BCELoss(reduction='sum').cuda()
+        loss_fn = torch.nn.BCELoss(reduction='sum')
 
         # Load checkpoint if resume training
         if self.opt.resume:
@@ -133,14 +132,16 @@ class Execution:
         logfile = open(
             self.opt.log_path +
             f'log_run_{str(self.opt.seed)}.txt',
-            'a+'
+            'w'
         )
         logfile.write(
             f"NowTime: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         )
+        logfile.write(json.dumps(self.opt.__dict__))
 
         # Training script
         for epoch in range(start_epoch, self.opt.max_epoch):
+            self.model.train()
             # Learning Rate Decay
             if epoch in self.opt.lr_decay_list:
                 adjust_lr(optim, self.opt.lr_decay_rate)
@@ -150,8 +151,8 @@ class Execution:
                 shuffle_list(dataset.ans_list)
 
             time_start = time.time()
-            # Iteration
-            for step, batch in enumerate(dataloader):
+            pbar = tqdm(dataloader)
+            for step, batch in enumerate(pbar):
                 img_feat_iter, ques_ix_iter, ans_iter, idx = batch
                 optim.zero_grad()
 
@@ -172,7 +173,7 @@ class Execution:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
                     logits, _, _, _, _, _, _, _ = self.model(
-                        sub_img_feat_iter, sub_ques_ix_iter)
+                        sub_img_feat_iter, sub_ques_ix_iter)  # was sub_ques_ix_iter
 
                     loss = loss_fn(logits, sub_ans_iter)
                     # only mean-reduction needs be divided by grad_accu_steps
@@ -180,22 +181,12 @@ class Execution:
                     # but would be necessary if you use SGD optimizer.
                     # loss /= self.opt.GRAD_ACCU_STEPS
                     loss.backward()
-                    loss_sum += loss.cpu().data.numpy() * self.opt.grad_accu_steps
+                    loss_sum += loss.item() * self.opt.grad_accu_steps
 
                     if self.opt.verbose:
-                        if dataset_eval is not None:
-                            mode_str = self.opt.split['train'] + '->' + self.opt.split['val']
-                        else:
-                            mode_str = self.opt.split['train'] + '->' + self.opt.split['test']
-
-                        print("\r[epoch %2d][step %4d/%4d][%s] loss: %.4f, lr: %.2e" % (
-                            epoch + 1,
-                            step,
-                            int(data_size / self.opt.batch_size),
-                            mode_str,
-                            loss.cpu().data.numpy() / self.opt.sub_batch_size,
-                            optim._rate
-                        ), end='          ')
+                        descr = f"e: {epoch}; s: {step}/{int(data_size / self.opt.batch_size)}; " +\
+                              f"loss: {loss.item()/self.opt.sub_batch_size:.3f}, lr: {optim._rate:.2e}"
+                        pbar.set_description(descr)
 
                 # Gradient norm clipping
                 if self.opt.grad_norm_clip > 0:
@@ -217,7 +208,7 @@ class Execution:
                 optim.step()
 
             time_end = time.time()
-            print('Train epoch finished in {}s'.format(int(time_end-time_start)))
+            print(f'Train epoch {epoch} finished in {int(time_end-time_start)}s')
 
             epoch_finish = epoch + 1
 
@@ -226,14 +217,23 @@ class Execution:
                 f'epoch = {str(epoch_finish)}; loss = {str(loss_sum / data_size)}; ' +
                 f'lr = {str(optim._rate)}\n\n'
             )
+            wandb.log({'train_loss': loss.item(),})
 
             # Eval after every epoch
-            if self.dataset_test is not None:
+            if self.opt.eval_every_epoch:
+                if epoch % 2 == 0:
+                    perclass_roc, micro_roc, macro_roc = self.eval(self.dataset,)
+                    logfile.write(
+                        f"train perclass_roc: {perclass_roc};\n" +
+                        f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                    )
+                    wandb.log({'train macro roc': macro_roc})
                 perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
                 logfile.write(
-                    f"perclass_roc: {perclass_roc};\n" +
+                    f"test perclass_roc: {perclass_roc};\n" +
                     f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                 )
+                wandb.log({'test macro roc': macro_roc})
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
 
@@ -372,12 +372,13 @@ class Execution:
         ans_size = dataset.ans_size
         pretrained_emb = dataset.pretrained_emb
 
-        dataloader = DataLoader(
+        dataloader = CustomLoader(
             dataset,
-            batch_size=self.opt.eval_batch_size,
-            shuffle=False,
-            num_workers=self.opt.num_workers,
-            pin_memory=True
+            self.opt,
+            # batch_size=self.opt.eval_batch_size,
+            # shuffle=False,
+            # num_workers=self.opt.num_workers,
+            # pin_memory=True
         )
         preds = []
         targets = []
@@ -435,12 +436,12 @@ class ExecuteMIMIC(Execution):
         print('Load mimic training set')
         self.dataset = MIMICDatasetSplit(opt)
 
-        eval_opt = copy.deepcopy(opt)
-        setattr(eval_opt, 'run_mode', 'val')
+        val_opt = copy.deepcopy(opt)
+        setattr(val_opt, 'run_mode', 'val')
         print('Load validation set for evaluation ...')
-        self.dataset_eval = MIMICDatasetSplit(eval_opt)
+        self.dataset_val = MIMICDatasetSplit(val_opt)
 
-        test_opt = copy.deepcopy(eval_opt)
+        test_opt = copy.deepcopy(val_opt)
         setattr(test_opt, 'run_mode', 'test')
         print('Load test set for evaluation ...')
         self.dataset_test = MIMICDatasetSplit(test_opt)
@@ -448,12 +449,249 @@ class ExecuteMIMIC(Execution):
     def run(self, run_mode):
         if run_mode == 'train':
             self.empty_log(self.opt.seed)
-            self.model = self.train(self.dataset,)
+            self.train(self.dataset,)
         elif run_mode == 'val':
-            self.eval(self.dataset_eval)
+            self.eval(self.dataset_val)
             # self.visualize(self.dataset, valid=True)
         elif run_mode == 'test':
             self.eval(self.dataset_test)
+    
+    def train(self, dataset, dataset_eval=None):
+
+        # Obtain needed information
+        data_size = dataset.data_size
+        token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        pretrained_emb = dataset.pretrained_emb
+
+        # Define the MCAN model
+        self.model = Net(
+            self.opt,
+            pretrained_emb,
+            token_size,
+            ans_size
+        )
+        self.model.cuda()
+        self.model.train()
+        
+        # Define the multi-gpu training if needed
+        if self.opt.n_gpu > 1:
+            self.model = nn.DataParallel(self.model, device_ids=self.opt.devices)
+
+        # Define the binary cross entropy loss
+        # loss_fn = torch.nn.BCELoss(size_average=False).cuda()
+        loss_fn = torch.nn.BCELoss(reduction='sum')
+
+        # Load checkpoint if resume training
+        if self.opt.resume:
+            print('Resume training')
+
+            if self.opt.ckpt_path is not None:
+                print('Warning: you are now using CKPT_PATH args, '
+                      'CKPT_VERSION and CKPT_EPOCH will not work')
+
+                path = self.opt.ckpt_path
+            else:
+                path = self.opt.ckpt_path + \
+                       'ckpt_' + self.opt.ckpt_version + \
+                       '/epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+
+            # Load the network parameters
+            print('Loading ckpt {}'.format(path))
+            ckpt = torch.load(path)
+            print('Finish!')
+            self.model.load_state_dict(ckpt['state_dict'])
+
+            # Load the optimizer paramters
+            optim = get_optim(self.opt, self.model, data_size, ckpt['lr_base'])
+            optim._step = int(data_size / self.opt.batch_size * self.opt.ckpt_epoch)
+            optim.optimizer.load_state_dict(ckpt['optimizer'])
+
+            start_epoch = self.opt.ckpt_epoch
+
+        else:
+            ckpt_path_latter = 'ckpt_' + str(self.opt.seed)
+            ckpt_path_full = os.path.join(self.opt.ckpt_path, ckpt_path_latter)
+            if ckpt_path_latter in os.listdir(self.opt.ckpt_path):
+                shutil.rmtree(ckpt_path_full)
+
+            os.mkdir(ckpt_path_full)
+
+            optim = get_optim(self.opt, self.model, data_size)
+            start_epoch = 0
+
+        # loss_sum = 0
+        reg_crit = nn.SmoothL1Loss()  # add regularization
+        named_params = list(self.model.named_parameters())
+        grad_norm = np.zeros(len(named_params))
+
+        # Define multi-thread dataloader
+        # if self.opt.shuffle_mode in ['external']:
+        #     dataloader = DataLoader(
+        #         dataset,
+        #         batch_size=self.opt.batch_size,
+        #         shuffle=False,
+        #         num_workers=self.opt.num_workers,
+        #         pin_memory=self.opt.pin_mem,
+        #         drop_last=True
+        #     )
+        # else:
+        dataloader = CustomLoader(
+            dataset, self.opt
+            # batch_size=self.opt.batch_size,
+            # shuffle=True,
+            # num_workers=self.opt.num_workers,
+            # pin_memory=self.opt.pin_mem,
+            # drop_last=True
+        )
+        
+        # Save log information
+        logfile = open(
+            self.opt.log_path +
+            f'log_run_{str(self.opt.seed)}.txt',
+            'w'
+        )
+        logfile.write(
+            f"NowTime: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        logfile.write(json.dumps(self.opt.__dict__))
+
+        # Training script
+        for epoch in range(start_epoch, self.opt.max_epoch):
+            self.model.train()
+            # Learning Rate Decay
+            if epoch in self.opt.lr_decay_list:
+                adjust_lr(optim, self.opt.lr_decay_rate)
+
+            # Externally shuffle
+            if self.opt.shuffle_mode == 'external':
+                shuffle_list(dataset.ans_list)
+
+            time_start = time.time()
+            pbar = tqdm(dataloader)
+            for step, batch in enumerate(pbar):
+                img_feat_iter, ques_ix_iter, ans_iter, idx = batch
+                optim.zero_grad()
+
+                img_feat_iter = img_feat_iter.cuda()
+                ques_ix_iter = ques_ix_iter.cuda()
+                ans_iter = ans_iter.cuda()
+
+                for accu_step in range(self.opt.grad_accu_steps):
+
+                    sub_img_feat_iter = \
+                        img_feat_iter[accu_step * self.opt.sub_batch_size:
+                                      (accu_step + 1) * self.opt.sub_batch_size]
+                    sub_ques_ix_iter = \
+                        ques_ix_iter[accu_step * self.opt.sub_batch_size:
+                                     (accu_step + 1) * self.opt.sub_batch_size]
+                    sub_ans_iter = \
+                        ans_iter[accu_step * self.opt.sub_batch_size:
+                                 (accu_step + 1) * self.opt.sub_batch_size]
+
+                    logits, _, _, _, _, _, _, _ = self.model(
+                        sub_img_feat_iter, sub_ques_ix_iter)  # was sub_ques_ix_iter
+
+                    main_loss = loss_fn(logits, sub_ans_iter)
+
+                    if self.opt.reg_factor > 0:
+                        reg_loss = 0
+                        for param in self.model.parameters():
+                            reg_loss += reg_crit(param, target=torch.zeros_like(param))
+                        loss = self.opt.reg_factor * reg_loss + main_loss
+                        loss.backward()
+                    else:
+                        main_loss.backward()
+                    # only mean-reduction needs be divided by grad_accu_steps
+                    # removing this line wouldn't change our results because the speciality of Adam optimizer,
+                    # but would be necessary if you use SGD optimizer.
+                    # loss /= self.opt.GRAD_ACCU_STEPS
+                    # loss.backward()
+                    # loss_sum += loss.item() * self.opt.grad_accu_steps
+
+                    if self.opt.verbose:
+                        descr = f"e: {epoch}; reg_loss: {self.opt.reg_factor * reg_loss.item():.3f}; " +\
+                              f"main_loss: {main_loss.item():.3f}, lr: {optim._rate:.2e}"
+                        pbar.set_description(descr)
+
+                    if step % self.opt.eval_interval == 1:
+                        
+                        # Eval after every epoch
+                        if self.dataset_test is not None:
+                            # tentatively eval on train set?
+                            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                            logfile.write(f'step: {step}; ' + 
+                                f"perclass_roc: {perclass_roc};\n" +
+                                f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                            )
+                            wandb.log({'train_loss': loss.item(), 'test macro roc': macro_roc})
+                        self.model.train()
+
+                # Gradient norm clipping
+                if self.opt.grad_norm_clip > 0:
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.opt.grad_norm_clip
+                    )
+
+                # Save the gradient information
+                for name in range(len(named_params)):
+                    norm_v = torch.norm(named_params[name][1].grad).cpu().data.numpy() \
+                        if named_params[name][1].grad is not None else 0
+                    grad_norm[name] += norm_v * self.opt.grad_accu_steps
+                    # print('Param %-3s Name %-80s Grad_Norm %-20s'%
+                    #       (str(grad_wt),
+                    #        params[grad_wt][0],
+                    #        str(norm_v)))
+
+                optim.step()
+
+            time_end = time.time()
+            print(f'Train epoch {epoch} finished in {int(time_end-time_start)}s')
+
+            epoch_finish = epoch + 1
+
+            # Logging
+            logfile.write(
+                f'epoch = {str(epoch_finish)}; loss = {loss}; ' +
+                f'lr = {str(optim._rate)}\n\n'
+            )
+            wandb.log({'train_loss': loss.item(),})
+
+            # Eval after every epoch
+            if self.opt.eval_every_epoch:
+                if epoch % 2 == 0:
+                    perclass_roc, micro_roc, macro_roc = self.eval(self.dataset,)
+                    logfile.write(
+                        f"train perclass_roc: {perclass_roc};\n" +
+                        f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                    )
+                    wandb.log({'train macro roc': macro_roc})
+
+                perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                logfile.write(
+                    f"test perclass_roc: {perclass_roc};\n" +
+                    f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                )
+                wandb.log({'test macro roc': macro_roc})
+
+            grad_norm = np.zeros(len(named_params))
+
+        # Save checkpoint
+        state = {
+            'state_dict': self.model.state_dict(),
+            'optimizer': optim.optimizer.state_dict(),
+            'lr_base': optim.lr_base
+        }
+        try:
+            torch.save(
+                state,
+                os.path.join(self.opt.ckpt_path, 'ckpt_' + str(self.opt.seed) +
+                '/epoch' + str(epoch_finish) + '.pt')
+            )
+        except:
+            print('error in saving model')
+        
     
     def eval(self, dataset):
         """
@@ -478,41 +716,351 @@ class ExecuteMIMIC(Execution):
         ans_size = dataset.ans_size
         pretrained_emb = dataset.pretrained_emb
 
-        dataloader = DataLoader(
+        dataloader = DataLoader(  # shouldn't use CustomLoader cuz no shuffle & drop_last=True
             dataset,
-            batch_size=self.opt.eval_batch_size,
+            batch_size=self.opt.batch_size,
             shuffle=False,
             num_workers=self.opt.num_workers,
-            pin_memory=True
+            pin_memory=True,
+            drop_last=True
         )
         preds = []
         targets = []
-
-        for step, batch in enumerate(dataloader):
-            img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx = batch
+        pbar = tqdm(dataloader)
+        for step, batch in enumerate(pbar):
+            img_feat_iter, ques_ix_iter, ans_iter, idx = batch
             img_feat_iter = img_feat_iter.cuda()
             ques_ix_iter = ques_ix_iter.cuda()
 
-            results = net(
-                img_feat_iter,
-                ques_ix_iter
-            )
+            results = net(img_feat_iter, ques_ix_iter,)
             logits, _, _, _, _, _, _, _ = results  # [B, 15]
             preds.append(logits.detach().cpu().numpy())
             targets.append(ans_iter.detach().cpu().numpy())
+            pbar.set_description(f'eval on {self.opt.run_mode}; s: ' +
+                f'{step}/{int(dataset.data_size / self.opt.batch_size)}')
+
+        targets = np.vstack(targets)
+        preds = np.vstack(preds)
+
+        perclass_roc = roc_auc_score(targets, preds, average=None)
+        print(f'per class ROC: {perclass_roc}')
+        micro_roc = roc_auc_score(targets, preds, average='micro')
+        print(f'micro ROC: {micro_roc:.3f}')
+        macro_roc = roc_auc_score(targets, preds, average='macro')
+        print(f'macro ROC: {macro_roc:.3f}')
+        return perclass_roc, micro_roc, macro_roc
+
+
+class ExecClassify(Execution):
+    def __init__(self, opt):
+        self.opt = opt
+        self.model = None  # trained model
+        print('Load mimic training set')
+        self.dataset = MIMICDatasetSplit(opt)
+
+        eval_opt = copy.deepcopy(opt)
+        setattr(eval_opt, 'run_mode', 'val')
+        print('Load validation set for evaluation ...')
+        self.dataset_val = MIMICDatasetSplit(eval_opt)
+
+        test_opt = copy.deepcopy(eval_opt)
+        setattr(test_opt, 'run_mode', 'test')
+        print('Load test set for evaluation ...')
+        self.dataset_test = MIMICDatasetSplit(test_opt)
+    
+    def run(self, run_mode):
+        if run_mode == 'train':
+            self.empty_log(self.opt.seed)
+            self.train(self.dataset,)
+        elif run_mode == 'val':
+            self.eval(self.dataset_val)
+            # self.visualize(self.dataset, valid=True)
+        elif run_mode == 'test':
+            self.eval(self.dataset_test)
+
+    def train(self, dataset, dataset_val=None):
+
+        # Obtain needed information
+        data_size = dataset.data_size
+        # token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        # pretrained_emb = dataset.pretrained_emb
+
+        # Define the MCAN model
+        self.model = ClassifierNet(
+            self.opt,
+            # pretrained_emb,
+            # token_size,
+            ans_size
+        )
+        self.model.cuda()
+        self.model.train()
         
+        # Define the multi-gpu training if needed
+        if self.opt.n_gpu > 1:
+            self.model = nn.DataParallel(self.model, device_ids=self.opt.devices)
+
+        # Define the binary cross entropy loss
+        # loss_fn = torch.nn.BCELoss(size_average=False).cuda()
+        # loss_fn = torch.nn.BCEWithLogitsLoss(reduction='sum')  # very bad
+        loss_fn = torch.nn.BCELoss(reduction='sum')
+
+        # Load checkpoint if resume training
+        if self.opt.resume:
+            print('Resume training')
+
+            if self.opt.ckpt_path is not None:
+                print('Warning: you are now using CKPT_PATH args, '
+                      'CKPT_VERSION and CKPT_EPOCH will not work')
+
+                path = self.opt.ckpt_path
+            else:
+                path = self.opt.ckpt_path + \
+                       'ckpt_' + self.opt.ckpt_version + \
+                       '/epoch' + str(self.opt.ckpt_epoch) + '.pkl'
+
+            # Load the network parameters
+            print('Loading ckpt {}'.format(path))
+            ckpt = torch.load(path)
+            print('Finish!')
+            self.model.load_state_dict(ckpt['state_dict'])
+
+            # Load the optimizer paramters
+            optim = get_optim(self.opt, self.model, data_size, ckpt['lr_base'])
+            optim._step = int(data_size / self.opt.batch_size * self.opt.ckpt_epoch)
+            optim.optimizer.load_state_dict(ckpt['optimizer'])
+
+            start_epoch = self.opt.ckpt_epoch
+
+        else:
+            ckpt_path_latter = 'ckpt_' + str(self.opt.seed)
+            ckpt_path_full = os.path.join(self.opt.ckpt_path, ckpt_path_latter)
+            if ckpt_path_latter in os.listdir(self.opt.ckpt_path):
+                shutil.rmtree(ckpt_path_full)
+
+            os.mkdir(ckpt_path_full)
+
+            optim = get_optim(self.opt, self.model, data_size)
+            start_epoch = 0
+
+        reg_crit = nn.SmoothL1Loss()  # add regularization
+        named_params = list(self.model.named_parameters())
+        grad_norm = np.zeros(len(named_params))
+
+        # Define multi-thread dataloader
+        # if self.opt.shuffle_mode in ['external']:
+        #     dataloader = DataLoader(
+        #         dataset,
+        #         batch_size=self.opt.batch_size,
+        #         shuffle=False,
+        #         num_workers=self.opt.num_workers,
+        #         pin_memory=self.opt.pin_mem,
+        #         drop_last=True
+        #     )
+        # else:
+        dataloader = CustomLoader(
+            dataset, self.opt
+            # batch_size=self.opt.batch_size,
+            # shuffle=True,
+            # num_workers=self.opt.num_workers,
+            # pin_memory=self.opt.pin_mem,
+            # drop_last=True
+        )
+        
+        # Save log information
+        logfile = open(
+            self.opt.log_path +
+            f'log_run_{str(self.opt.seed)}.txt',
+            'w'
+        )
+        logfile.write(
+            f"NowTime: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+        logfile.write(json.dumps(self.opt.__dict__))
+
+        # Training script
+        for epoch in range(start_epoch, self.opt.max_epoch):
+            self.model.train()
+            # Learning Rate Decay
+            if epoch in self.opt.lr_decay_list:
+                adjust_lr(optim, self.opt.lr_decay_rate)
+
+            # Externally shuffle
+            if self.opt.shuffle_mode == 'external':
+                shuffle_list(dataset.ans_list)
+
+            time_start = time.time()
+            pbar = tqdm(dataloader)
+            for step, batch in enumerate(pbar):
+                img_feat_iter, ques_ix_iter, ans_iter, idx, multilabel = batch
+                optim.zero_grad()
+
+                img_feat_iter = img_feat_iter.cuda()
+                ques_ix_iter = ques_ix_iter.cuda()
+                multilabel = multilabel.cuda()
+
+                for accu_step in range(self.opt.grad_accu_steps):
+
+                    sub_img_feat_iter = \
+                        img_feat_iter[accu_step * self.opt.sub_batch_size:
+                                      (accu_step + 1) * self.opt.sub_batch_size]
+                    multilabel_iter = \
+                        multilabel[accu_step * self.opt.sub_batch_size:
+                                     (accu_step + 1) * self.opt.sub_batch_size]
+                    # sub_ans_iter = \
+                    #     ans_iter[accu_step * self.opt.sub_batch_size:
+                    #              (accu_step + 1) * self.opt.sub_batch_size]
+
+                    logits, _, _, _, _ = self.model(
+                        sub_img_feat_iter)  # was sub_ques_ix_iter
+
+                    loss = loss_fn(logits, multilabel_iter)
+
+                    if self.opt.reg_factor > 0:
+                        reg_loss = 0
+                        for param in self.model.parameters():
+                            reg_loss += reg_crit(param, target=torch.zeros_like(param))
+                        loss += self.opt.reg_factor * reg_loss
+
+                    # only mean-reduction needs be divided by grad_accu_steps
+                    # removing this line wouldn't change our results because the speciality of Adam optimizer,
+                    # but would be necessary if you use SGD optimizer.
+                    # loss /= self.opt.GRAD_ACCU_STEPS
+                    loss.backward()
+                    # loss_sum += loss.item() * self.opt.grad_accu_steps
+
+                    if self.opt.verbose:
+                        descr = f"train: e: {epoch+1}; s: {step}/{int(data_size / self.opt.batch_size)}; " +\
+                              f"l: {loss.item()/self.opt.sub_batch_size:.3f}; lr: {optim._rate:.2e}"
+                        pbar.set_description(descr)
+                    
+                    if step % self.opt.eval_interval == 0:
+                        
+                        # Eval after every epoch
+                        if self.dataset_test is not None:
+                            # tentatively eval on train set?
+                            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                            logfile.write(f'step: {step}; ' + 
+                                f"perclass_roc: {perclass_roc};\n" +
+                                f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                            )
+                            wandb.log({'train_loss': loss.item(), 'test macro roc': macro_roc})
+                        self.model.train()
+
+                # Gradient norm clipping
+                if self.opt.grad_norm_clip > 0:
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.opt.grad_norm_clip
+                    )
+
+                # Save the gradient information
+                for name in range(len(named_params)):
+                    norm_v = torch.norm(named_params[name][1].grad).cpu().data.numpy() \
+                        if named_params[name][1].grad is not None else 0
+                    grad_norm[name] += norm_v * self.opt.grad_accu_steps
+
+                optim.step()
+
+            time_end = time.time()
+            print(f'Train epoch {epoch} finished in {int(time_end-time_start)}s')
+
+            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset,)
+            wandb.log({'train macro roc': macro_roc})
+            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_val,)
+            wandb.log({'valid macro roc': macro_roc})
+            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+            wandb.log({'test macro roc': macro_roc})
+            self.model.train()
+            epoch_finish = epoch + 1
+
+            # Logging
+            logfile.write(
+                f'epoch = {str(epoch_finish)}; loss = {str(loss.item() / data_size)}; ' +
+                f'lr = {str(optim._rate)}\n\n'
+            )
+
+            # Eval after every epoch
+            if self.dataset_test is not None:
+                perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                logfile.write(
+                    f"perclass_roc: {perclass_roc};\n" +
+                    f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                )
+            # loss_sum = 0
+            grad_norm = np.zeros(len(named_params))
+
+        # Save checkpoint
+        state = {
+            'state_dict': self.model.state_dict(),
+            'optimizer': optim.optimizer.state_dict(),
+            'lr_base': optim.lr_base
+        }
+        try:
+            torch.save(
+                state,
+                os.path.join(self.opt.ckpt_path, 'ckpt_' + str(self.opt.seed) +
+                '/epoch' + str(epoch_finish) + '.pt')
+            )
+        except:
+            print('error in saving model')
+        # return self.model
+
+    def eval(self, dataset):
+        """
+        eval for classify 14 classes
+        """
+        # load model
+        if self.model:
+            self.model.eval()
+            net = self.model
+        else:
+            net = Net(self.opt, pretrained_emb, token_size, ans_size)
+            net.cuda()
+            net.eval()
+            if self.opt.n_gpu > 1:
+                net = nn.DataParallel(net, device_ids=self.opt.devices)
+            path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
+            state_dict = torch.load(path)['state_dict']
+            net.load_state_dict(state_dict)
+
+        # data_size = dataset.data_size
+        token_size = dataset.token_size
+        ans_size = dataset.ans_size
+        pretrained_emb = dataset.pretrained_emb
+
+        dataloader = CustomLoader(
+            dataset,
+            self.opt,
+        )
+        preds = []
+        targets = []
+        pbar = tqdm(dataloader)
+        for step, batch in enumerate(pbar):
+            img_feat_iter, ques_ix_iter, ans_iter, idx, multilabel = batch
+            img_feat_iter = img_feat_iter.cuda()
+            ques_ix_iter = ques_ix_iter.cuda()
+
+            results = net(img_feat_iter)
+            logits, _, _, _, _ = results  # [B, 15]
+            preds.append(logits.detach().cpu().numpy())
+            targets.append(multilabel.detach().cpu().numpy())
+            desc = f'eval batch: {step}/ {len(dataset)/self.opt.batch_size}'
+            pbar.set_description(desc)
+
         targets = np.vstack(targets)
         preds = np.vstack(preds)
         try:
-            perclass_roc_auc = roc_auc_score(targets, preds, average=None)
-            print(f'per class ROC: {perclass_roc_auc}')
-            micro_roc_auc = roc_auc_score(targets, preds, average='micro')
-            print(f'micro ROC: {micro_roc_auc}')
-            macro_roc_auc = roc_auc_score(targets, preds, average='macro')
-            print(f'macro ROC: {macro_roc_auc}')
+            print(f'run_mode: {self.opt.run_mode}')
+            perclass_roc = roc_auc_score(targets, preds, average=None)
+            print(f'per class ROC: {perclass_roc}')
+            micro_roc = roc_auc_score(targets, preds, average='micro')
+            print(f'micro ROC: {micro_roc:.3f}')
+            macro_roc = roc_auc_score(targets, preds, average='macro')
+            print(f'macro ROC: {macro_roc:.3f}')
+            return perclass_roc, micro_roc, macro_roc
         except:
             print(f"except in {self.opt.run_mode}")
-
 
 def plot_boxes(im_file, iid, q, preds, ans, boxes, qq, qa, va_values, va_indices, vv, vq):
     """

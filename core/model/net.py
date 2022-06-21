@@ -5,7 +5,7 @@
 # --------------------------------------------------------
 
 from core.model.net_utils import FC, MLP, LayerNorm
-from core.model.mca import MCA_ED
+from core.model.mca import MCA_ED, MCAClassifier
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -128,6 +128,65 @@ class Net(nn.Module):
         logits = torch.sigmoid(self.proj(a))
 
         return logits, v, v_mask, v_w, q, q_mask, q_w, a
+
+
+    # Masking
+    def make_mask(self, feature):
+        return (torch.sum(torch.abs(feature), 
+            dim=-1) == 0).unsqueeze(1).unsqueeze(2)
+
+
+class ClassifierNet(nn.Module):
+    def __init__(self, opt, answer_size) -> None:
+        super(ClassifierNet, self).__init__()
+        self.img_feat_linear = nn.Linear(
+            opt.img_feat_size,
+            opt.hidden_size
+        )
+
+        self.backbone = MCAClassifier(opt)
+
+        self.attflat_img = AttFlat(opt)
+        self.attflat_lang = AttFlat(opt)
+
+        self.proj_norm = LayerNorm(opt.flat_out_size)
+        self.proj = nn.Linear(opt.flat_out_size, answer_size)
+
+
+    def forward(self, v):
+
+        # Make mask
+        # q_mask = self.make_mask(ques_ix.unsqueeze(2))
+        v_mask = self.make_mask(v)
+
+        # Pre-process Language Feature
+        # q = self.embedding(ques_ix)
+        # q, _ = self.lstm(q)
+
+        # Pre-process Image Feature
+        v = self.img_feat_linear(v)
+
+        # Backbone Framework
+        v = self.backbone(
+            v,
+            v_mask
+        )
+
+        # lang_feat_flat, q_w = self.attflat_lang(  # [B, 512]
+        #     q,
+        #     q_mask
+        # )
+
+        img_feat_flat, v_w = self.attflat_img(  # [B, 512]
+            v,
+            v_mask
+        )
+
+        a = img_feat_flat
+        a = self.proj_norm(a)  # [B, 512]
+        logits = torch.sigmoid(self.proj(a))
+
+        return logits, v, v_mask, v_w, a
 
 
     # Masking

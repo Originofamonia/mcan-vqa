@@ -5,7 +5,9 @@
 # --------------------------------------------------------
 import h5py
 import pickle
+import random
 import numpy as np
+from numpy.random import default_rng
 import pandas as pd
 import glob, json, torch, time
 from torch.utils.data import Dataset, DataLoader
@@ -157,18 +159,24 @@ class MIMICDatasetBase(Dataset):
     def __init__(self, opt) -> None:
         super().__init__()
         self.opt = opt
-
+        # self.chexpert_df = pd.read_csv(f'/home/qiyuan/2021summer/physionet.org/files/mimic-cxr-jpg/2.0.0/mimic-cxr-2.0.0-chexpert.csv.gz')
+        
         f1 = h5py.File(opt.cxr_img_feat_path, 'r')
         print(f'keys: {f1.keys()}')
-        self.image_features = f1['image_features']  # [377110, 60, 1024]
-        self.bbox_label = f1['bbox_label']  # [377k, 60]
-        self.image_adj_matrix = f1['image_adj_matrix']  # [377k, 100, 100]
+        self.image_features = f1['image_features']  # [377110, 60, 1024], 36 ana + 24 finding
+        # self.bbox_label = f1['bbox_label']  # [377k, 60]
+        # self.image_adj_matrix = f1['image_adj_matrix']  # [377k, 100, 100]
         self.image_bb = f1['image_bb']  # [377k, 60, 4]
-        self.pos_boxes = f1['pos_boxes']  # [377k, 2]
-        self.semantic_adj_matrix = f1['semantic_adj_matrix']  # [377k, 100, 100]
+        # self.pos_boxes = f1['pos_boxes']  # [377k, 2]
+        # self.semantic_adj_matrix = f1['semantic_adj_matrix']  # [377k, 100, 100]
         self.spatial_features = f1['spatial_features']  # [377k, 60, 6]
 
-        self.v_dim = self.image_features.chunks[-1]  # visual feat dim
+        f5 = h5py.File(opt.ana_pool_finding_path, 'r')
+        print(f'f5 keys: {f5.keys()}')
+        # anatomical box pooled findings feature
+        self.ana_pooled_feats = f5['image_features']  # [377k, 26, 1024]
+
+        self.v_dim = self.ana_pooled_feats.chunks[-1]  # visual feat dim
         self.s_dim = self.spatial_features.chunks[-1]  # spatial dim
 
         with open(opt.mimic_ans_dict_path['ans2idx'], 'rb') as f3:
@@ -176,7 +184,7 @@ class MIMICDatasetBase(Dataset):
         # because no_finding becomes yes or no, so 15 labels
         with open(opt.mimic_ans_dict_path['idx2ans'], 'rb') as f4:
             self.ix_to_ans = pickle.load(f4)
-        self.ans_size = self.ans_to_ix.__len__()
+        self.ans_size = self.ans_to_ix.__len__()  # was self.ans_to_ix.__len__()
         
         print('== Answer vocab size (occurr more than {} times):'.format(8), self.ans_size)
         print('load mimic base dataset finished.')
@@ -190,50 +198,53 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         super().__init__(opt)
         with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
             self.qa = pickle.load(f2)  # qa pairs
-        
+        # if opt.run_mode == 'train':
+        #     self.qa = random.sample(self.qa, 20000)
         self.token_to_ix, self.pretrained_emb = tokenize(self.qa, opt.use_glove)
         self.token_size = self.token_to_ix.__len__()
         self.data_size = self.qa.__len__()
         print('== Question token vocab size:', self.token_size)
-    
+
     def __getitem__(self, idx):
         img_feat_iter = np.zeros(1)
         ques_ix_iter = np.zeros(1)
         ans_iter = np.zeros(1)
 
         qa = self.qa[idx]
-        # raw_question = qa["question"]
-        # image_id = qa["dicom_id"]
+        # subject_id = int(qa['subject_id'][:-2])
+        # study_id = int(qa['study_id'][:-2])
+        # multi_label = (self.chexpert_df[(self.chexpert_df['study_id']==study_id) & (self.chexpert_df['subject_id']==subject_id)] > 0).values
+        # multi_label = multi_label[0][2:].astype('float32')
+        
+        # Process question
+        ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
+        # Process answer
+        ans_iter = np.array(proc_mimic_ans(qa['answer'], self.ans_to_ix))  # only train for yes
 
         if self.opt.run_mode in ['train']:
-            img_feats = np.array(self.image_features[qa['image']])
+            # randomly dropout some dim of features
+            rand_dim = np.random.choice(np.arange(self.v_dim), replace=False,
+                           size=int(self.v_dim * 0.2))
+            img_feats = np.copy(self.image_features[qa['image']])  # must, or can't dropout
+            img_feats[:, rand_dim] = 0
+            # img_feats = np.array(self.image_features[qa['image']])
+            # ana_find_feats = np.array(self.ana_pooled_feats[qa['image']])
+            # img_feats = ana_find_feats
             img_feat_iter = pad_img_feat(img_feats, self.opt.img_feat_pad_size)
-            # boxes = pad_img_feat(self.image_bb[qa['image']], self.opt.img_feat_pad_size)
 
-            # Process question
-            ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
-
-            # Process answer
-            ans_iter = proc_mimic_ans(qa['answer'], self.ans_to_ix)
-
-            return torch.from_numpy(img_feat_iter), \
-               torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
-               torch.tensor([idx]), self.opt.run_mode
+            # return torch.from_numpy(img_feat_iter), \
+            #    torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
+            #    torch.tensor([idx]), # self.opt.run_mode
 
         else:  # ['val', 'test']
-            img_feats = np.array(self.image_features[qa['image']])
+            img_feats = self.image_features[qa['image']]
             img_feat_iter = pad_img_feat(img_feats, self.opt.img_feat_pad_size)
             boxes = pad_img_feat(self.image_bb[qa['image']], self.opt.img_feat_pad_size)
 
-            # Process question
-            ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
-
-            # Process answer
-            ans_iter = proc_mimic_ans(qa['answer'], self.ans_to_ix)
             # only works for batchsize=1
-            return torch.from_numpy(img_feat_iter), \
-                torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
-                img_feats, boxes, torch.tensor([idx])
+        return torch.from_numpy(img_feat_iter), \
+            torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
+            torch.tensor([idx])  # img_feats, boxes,
 
     def __len__(self):
         return self.data_size
@@ -256,17 +267,21 @@ class CustomLoader(DataLoader):
 
     @staticmethod
     def collate_fn(data):
-        if data[0][-1] in ['train']:
-            img_feat_iter, ques_ix_iter, ans_iter, idx, _ = zip(*data)
-            img_feat_iter = torch.stack(img_feat_iter, dim=0)
-            ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
-            ans_iter = torch.stack(ans_iter, dim=0)
-            idx = torch.stack(idx, dim=0)
-            return img_feat_iter, ques_ix_iter, ans_iter, idx
-        else:
-            img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx = zip(*data)
-            img_feat_iter = torch.stack(img_feat_iter, dim=0)
-            ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
-            ans_iter = torch.stack(ans_iter, dim=0)
-            idx = torch.stack(idx, dim=0)
-            return img_feat_iter, ques_ix_iter, ans_iter, img_feats, boxes, idx
+        # if data[0][-1] == 'train':
+        #     img_feat_iter, ques_ix_iter, ans_iter, idx = zip(*data)
+        #     img_feat_iter = torch.stack(img_feat_iter, dim=0)
+        #     ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
+        #     ans_iter = torch.stack(ans_iter, dim=0)
+        #     idx = torch.stack(idx, dim=0)
+        #     # multi_label = torch.stack(multi_label, dim=0)
+        #     return img_feat_iter, ques_ix_iter, ans_iter, idx
+        # else:
+
+        img_feat_iter, ques_ix_iter, ans_iter, idx = zip(*data)
+        img_feat_iter = torch.stack(img_feat_iter, dim=0)
+        ques_ix_iter = torch.stack(ques_ix_iter, dim=0)
+        ans_iter = torch.stack(ans_iter, dim=0)
+        idx = torch.stack(idx, dim=0)
+        # multi_label = torch.stack(multi_label, dim=0)
+        return img_feat_iter, ques_ix_iter, ans_iter, idx
+            # tentatively removed img_feats, boxes,

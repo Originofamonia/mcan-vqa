@@ -26,8 +26,10 @@ class PATH:
             'val': self.feature_path + 'val2014/',
             'test': self.feature_path + 'test2015/',
         }
-
+        # xinyue/faster-rcnn/output/mimic_ana_box/cmb_bbox_features_full.hdf5 is 26 ana box pool findings + 25 findings
+        self.ana_pool_finding_path2 = f'/home/xinyue/faster-rcnn/output/mimic_ana_box/cmb_bbox_features_full.hdf5'
         self.cxr_img_feat_path = f'/home/xinyue/VQA_ReGat/data/mimic/cmb_bbox_features_full.hdf5'
+        self.ana_pool_finding_path = f'/home/xinyue/faster-rcnn/output/mimic_box_coords/bbox_disease_features_by_coords.hdf5'
 
         self.mimic_qa_path = {
             'train': self.cxr_data_path + 'dataset_train_full.pkl',

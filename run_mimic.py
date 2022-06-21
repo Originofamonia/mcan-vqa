@@ -9,9 +9,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib import colors
+import wandb
 
 from cfgs.base_cfgs import Cfgs
-from core.exec import ExecuteMIMIC
+from core.exec import ExecuteMIMIC, ExecClassify
 import argparse, yaml
 
 
@@ -22,8 +23,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='MCAN Args')
 
     parser.add_argument('--run', dest='run_mode',
-                      choices=['train', 'val', 'test', 'visualize'],
-                      type=str, default='train')
+                        choices=['train', 'val', 'test', 'visualize'],
+                        type=str, default='train')
 
     parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
@@ -44,26 +45,34 @@ def parse_args():
                            "'train' split)",
                       type=bool)
 
+    parser.add_argument('--eval_interval', default=1050,
+                      help='eval every # intervals ',
+                      type=int)
+
     parser.add_argument('--test_save_pred',
                       help='set True to save the '
                            'prediction vectors'
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=256,  # was 256
+    parser.add_argument('--batch_size', default=128,  # was 256
                       help='batch size during training',
                       type=int)
 
-    parser.add_argument('--max_epoch', default=4,
+    parser.add_argument('--max_epoch', default=30,
                       help='max training epoch',
                       type=int)
-
+    
+    parser.add_argument('--reg_factor', default=1e-1, # cuz the main loss is ~200
+                      help='strength of SmoothL1Loss for regularization',
+                      type=float)
+    
     parser.add_argument('--preload', default=False,
                       help='pre-load the features into memory'
                            'to increase the I/O speed',
                       type=bool)
 
-    parser.add_argument('--gpu', default='0,1',
+    parser.add_argument('--gpu', default='1',
                       help="gpu select, eg.'0, 1, 2'",
                       type=str)
 
@@ -92,7 +101,7 @@ def parse_args():
                         'recommend that you use '
                         'ckpt_version and ckpt_epoch '
                         'instead',
-                        default='/drive/qiyuan/mcan-vqa',
+                        default='/drive/qiyuan/mcan-vqa/',
                         type=str)
 
     parser.add_argument('--grad_accu_steps',
@@ -124,7 +133,13 @@ def parse_args():
 
 
 def main():
+    wandb.init(project="mimic classify")
     opt = Cfgs()
+    wandb.config = {
+          "learning_rate": opt.lr_base,
+          "epochs": opt.max_epoch,
+          "batch_size": opt.batch_size,
+          }
 
     args = parse_args()
     args_dict = opt.parse_to_dict(args)

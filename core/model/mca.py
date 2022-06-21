@@ -111,7 +111,7 @@ class SA(nn.Module):
 
         self.dropout1 = nn.Dropout(opt.dropout_rate)
         self.norm1 = LayerNorm(opt.hidden_size)
-
+        self.activation = nn.GELU()
         self.dropout2 = nn.Dropout(opt.dropout_rate)
         self.norm2 = LayerNorm(opt.hidden_size)
 
@@ -119,7 +119,7 @@ class SA(nn.Module):
         x = self.norm1(x + self.dropout1(
             self.mhatt(x, x, x, x_mask)
         ))
-
+        # x = self.activation(x)  # add gelu
         x = self.norm2(x + self.dropout2(
             self.ffn(x)
         ))
@@ -184,3 +184,24 @@ class MCA_ED(nn.Module):
             y = dec(y, x, y_mask, x_mask)
 
         return x, y
+
+
+class MCAClassifier(nn.Module):
+    """
+    inputs only img features, for multi-label classification
+    """
+    def __init__(self, opt):
+        super(MCAClassifier, self).__init__()
+
+        self.enc_list = nn.ModuleList([SA(opt) for _ in range(opt.layer)])
+        # self.dec_list = nn.ModuleList([SGA(opt) for _ in range(opt.layer)])
+
+    def forward(self, y, y_mask):
+        # Get hidden vector
+        for enc in self.enc_list:
+            y = enc(y, y_mask)
+
+        # for dec in self.dec_list:
+        #     y = dec(y, y, y_mask, y_mask)
+
+        return y

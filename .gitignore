@@ -8,3 +8,4 @@ core/model/__pycache__/*
 results/*
 utils/__pycache__/*
 .vscode
+wandb
