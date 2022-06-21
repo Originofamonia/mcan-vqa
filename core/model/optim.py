@@ -5,7 +5,7 @@
 # --------------------------------------------------------
 
 import torch
-from torch.optim import Adam
+from torch.optim import AdamW, SGD, Adam
 
 
 class WarmupOptimizer(object):
@@ -38,11 +38,11 @@ class WarmupOptimizer(object):
             step = self._step
 
         if step <= int(self.data_size / self.batch_size * 1):
-            r = self.lr_base * 1/4.
+            r = self.lr_base * 0.25  # was 0.25
         elif step <= int(self.data_size / self.batch_size * 2):
-            r = self.lr_base * 2/4.
+            r = self.lr_base * 0.5
         elif step <= int(self.data_size / self.batch_size * 3):
-            r = self.lr_base * 3/4.
+            r = self.lr_base * 0.75
         else:
             r = self.lr_base
 
@@ -55,11 +55,12 @@ def get_optim(opt, model, data_size, lr_base=None):
 
     return WarmupOptimizer(
         lr_base,
-        Adam(
+        AdamW(  # was AdamW
             filter(lambda p: p.requires_grad, model.parameters()),
-            lr=0,
-            betas=opt.opt_betas,
-            eps=opt.opt_eps
+            lr=0,  # was 0
+            # betas=opt.opt_betas,
+            # eps=opt.opt_eps,
+            weight_decay=1e-4,
         ),
         data_size,
         opt.batch_size
@@ -68,3 +69,7 @@ def get_optim(opt, model, data_size, lr_base=None):
 
 def adjust_lr(optim, decay_r):
     optim.lr_base *= decay_r
+
+
+def adjust_reg_factor(factor, decay_r):
+    factor *= decay_r
