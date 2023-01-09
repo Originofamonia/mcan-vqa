@@ -17,7 +17,7 @@ from sklearn.metrics import roc_auc_score
 import wandb
 
 from core.data.load_data import CustomDataset, CustomLoader, MIMICDatasetBase, MIMICDatasetSplit
-from core.model.net import Net, ClassifierNet
+from core.model.net import Net, ClassifierNet, Net2
 from core.model.optim import get_optim, adjust_lr
 from core.data.data_utils import shuffle_list
 from utils.vqa import VQA
@@ -217,7 +217,7 @@ class Execution:
                 f'epoch = {str(epoch_finish)}; loss = {str(loss_sum / data_size)}; ' +
                 f'lr = {str(optim._rate)}\n\n'
             )
-            wandb.log({'train_loss': loss.item(),})
+            # wandb.log({'train_loss': loss.item(),})
 
             # Eval after every epoch
             if self.opt.eval_every_epoch:
@@ -227,13 +227,13 @@ class Execution:
                         f"train perclass_roc: {perclass_roc};\n" +
                         f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                     )
-                    wandb.log({'train macro roc': macro_roc})
+                    # wandb.log({'train macro roc': macro_roc})
                 perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
                 logfile.write(
                     f"test perclass_roc: {perclass_roc};\n" +
                     f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                 )
-                wandb.log({'test macro roc': macro_roc})
+                # wandb.log({'test macro roc': macro_roc})
             loss_sum = 0
             grad_norm = np.zeros(len(named_params))
 
@@ -465,13 +465,14 @@ class ExecuteMIMIC(Execution):
         pretrained_emb = dataset.pretrained_emb
 
         # Define the MCAN model
-        self.model = Net(
+        self.model = Net2(
             self.opt,
             pretrained_emb,
             token_size,
             ans_size
         )
-        self.model.cuda()
+        # self.model.cuda()
+        self.model.to(self.opt.gpu)
         self.model.train()
         
         # Define the multi-gpu training if needed
@@ -573,9 +574,9 @@ class ExecuteMIMIC(Execution):
                 img_feat_iter, ques_ix_iter, ans_iter, idx = batch
                 optim.zero_grad()
 
-                img_feat_iter = img_feat_iter.cuda()
-                ques_ix_iter = ques_ix_iter.cuda()
-                ans_iter = ans_iter.cuda()
+                img_feat_iter = img_feat_iter.to(self.opt.gpu)
+                ques_ix_iter = ques_ix_iter.to(self.opt.gpu)
+                ans_iter = ans_iter.to(self.opt.gpu)
 
                 for accu_step in range(self.opt.grad_accu_steps):
 
@@ -589,15 +590,15 @@ class ExecuteMIMIC(Execution):
                         ans_iter[accu_step * self.opt.sub_batch_size:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
-                    logits, _, _, _, _, _, _, _ = self.model(
+                    logits, _, _, _, _ = self.model(
                         sub_img_feat_iter, sub_ques_ix_iter)  # was sub_ques_ix_iter
 
                     main_loss = loss_fn(logits, sub_ans_iter)
-
+                    reg_loss = 0
                     if self.opt.reg_factor > 0:
-                        reg_loss = 0
                         for param in self.model.parameters():
-                            reg_loss += reg_crit(param, target=torch.zeros_like(param))
+                            reg_loss += compute_l1_loss(param)
+                            reg_loss += compute_l2_loss(param)
                         loss = self.opt.reg_factor * reg_loss + main_loss
                         loss.backward()
                     else:
@@ -610,7 +611,7 @@ class ExecuteMIMIC(Execution):
                     # loss_sum += loss.item() * self.opt.grad_accu_steps
 
                     if self.opt.verbose:
-                        descr = f"e: {epoch}; reg_loss: {self.opt.reg_factor * reg_loss.item():.3f}; " +\
+                        descr = f"e: {epoch}; reg_loss: {self.opt.reg_factor * reg_loss:.3f}; " +\
                               f"main_loss: {main_loss.item():.3f}, lr: {optim._rate:.2e}"
                         pbar.set_description(descr)
 
@@ -624,7 +625,7 @@ class ExecuteMIMIC(Execution):
                                 f"perclass_roc: {perclass_roc};\n" +
                                 f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                             )
-                            wandb.log({'train_loss': loss.item(), 'test macro roc': macro_roc})
+                            # wandb.log({'main_loss': main_loss.item(), 'test macro roc': macro_roc})
                         self.model.train()
 
                 # Gradient norm clipping
@@ -653,10 +654,10 @@ class ExecuteMIMIC(Execution):
 
             # Logging
             logfile.write(
-                f'epoch = {str(epoch_finish)}; loss = {loss}; ' +
+                f'epoch = {str(epoch_finish)}; loss = {main_loss.item()}; ' +
                 f'lr = {str(optim._rate)}\n\n'
             )
-            wandb.log({'train_loss': loss.item(),})
+            # wandb.log({'train_loss': main_loss.item(),})
 
             # Eval after every epoch
             if self.opt.eval_every_epoch:
@@ -666,14 +667,14 @@ class ExecuteMIMIC(Execution):
                         f"train perclass_roc: {perclass_roc};\n" +
                         f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                     )
-                    wandb.log({'train macro roc': macro_roc})
+                    # wandb.log({'train macro roc': macro_roc})
 
                 perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
                 logfile.write(
                     f"test perclass_roc: {perclass_roc};\n" +
                     f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                 )
-                wandb.log({'test macro roc': macro_roc})
+                # wandb.log({'test macro roc': macro_roc})
 
             grad_norm = np.zeros(len(named_params))
 
@@ -703,7 +704,7 @@ class ExecuteMIMIC(Execution):
             net = self.model
         else:
             net = Net(self.opt, pretrained_emb, token_size, ans_size)
-            net.cuda()
+            net.to(self.opt.gpu)
             net.eval()
             if self.opt.n_gpu > 1:
                 net = nn.DataParallel(net, device_ids=self.opt.devices)
@@ -729,11 +730,11 @@ class ExecuteMIMIC(Execution):
         pbar = tqdm(dataloader)
         for step, batch in enumerate(pbar):
             img_feat_iter, ques_ix_iter, ans_iter, idx = batch
-            img_feat_iter = img_feat_iter.cuda()
-            ques_ix_iter = ques_ix_iter.cuda()
+            img_feat_iter = img_feat_iter.to(self.opt.gpu)
+            ques_ix_iter = ques_ix_iter.to(self.opt.gpu)
 
             results = net(img_feat_iter, ques_ix_iter,)
-            logits, _, _, _, _, _, _, _ = results  # [B, 15]
+            logits, _, _, _, _ = results  # [B, 15]
             preds.append(logits.detach().cpu().numpy())
             targets.append(ans_iter.detach().cpu().numpy())
             pbar.set_description(f'eval on {self.opt.run_mode}; s: ' +
@@ -944,7 +945,7 @@ class ExecClassify(Execution):
                                 f"perclass_roc: {perclass_roc};\n" +
                                 f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                             )
-                            wandb.log({'train_loss': loss.item(), 'test macro roc': macro_roc})
+                            # wandb.log({'train_loss': loss.item(), 'test macro roc': macro_roc})
                         self.model.train()
 
                 # Gradient norm clipping
@@ -966,11 +967,11 @@ class ExecClassify(Execution):
             print(f'Train epoch {epoch} finished in {int(time_end-time_start)}s')
 
             perclass_roc, micro_roc, macro_roc = self.eval(self.dataset,)
-            wandb.log({'train macro roc': macro_roc})
+            # wandb.log({'train macro roc': macro_roc})
             perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_val,)
-            wandb.log({'valid macro roc': macro_roc})
+            # wandb.log({'valid macro roc': macro_roc})
             perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
-            wandb.log({'test macro roc': macro_roc})
+            # wandb.log({'test macro roc': macro_roc})
             self.model.train()
             epoch_finish = epoch + 1
 
@@ -1290,3 +1291,11 @@ def manual_batch(q, iid, dataset):
     ans_iter = ans_iter.unsqueeze(0)
     idx = torch.tensor([idx])
     return img_feat_iter, ques_ix_iter, ans_iter, torch.from_numpy(img_feats['bbox']).cuda(), idx
+
+# https://github.com/christianversloot/machine-learning-articles/blob/main/how-to-use-l1-l2-and-elastic-net-regularization-with-pytorch.md
+def compute_l1_loss(w):
+      return torch.abs(w).sum()
+
+
+def compute_l2_loss(w):
+    return torch.square(w).sum()

@@ -6,14 +6,16 @@
 import os
 from copy import copy
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib import colors
+# import matplotlib.pyplot as plt
+# from matplotlib.patches import Rectangle
+# from matplotlib import colors
 import wandb
 
 from cfgs.base_cfgs import Cfgs
 from core.exec import ExecuteMIMIC, ExecClassify
 import argparse, yaml
+
+# os.environ['CUDA_VISIBLE_DEVICES']='1'
 
 
 def parse_args():
@@ -45,7 +47,7 @@ def parse_args():
                            "'train' split)",
                       type=bool)
 
-    parser.add_argument('--eval_interval', default=1050,
+    parser.add_argument('--eval_interval', default=1250,
                       help='eval every # intervals ',
                       type=int)
 
@@ -55,26 +57,28 @@ def parse_args():
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=128,  # was 256
+    parser.add_argument('--batch_size', default=64,  # was 64
                       help='batch size during training',
                       type=int)
 
-    parser.add_argument('--max_epoch', default=30,
+    parser.add_argument('--max_epoch', default=13,
                       help='max training epoch',
                       type=int)
-    
-    parser.add_argument('--reg_factor', default=1e-1, # cuz the main loss is ~200
+
+    parser.add_argument('--reg_factor', default=0, # cuz the main loss is ~200
                       help='strength of SmoothL1Loss for regularization',
                       type=float)
-    
+
+    parser.add_argument('--mutan_gamma', type=int, default=2, help='glimpse')
+
     parser.add_argument('--preload', default=False,
                       help='pre-load the features into memory'
                            'to increase the I/O speed',
                       type=bool)
 
-    parser.add_argument('--gpu', default='1',
+    parser.add_argument('--gpu', default=1,
                       help="gpu select, eg.'0, 1, 2'",
-                      type=str)
+                      type=int)
 
     parser.add_argument('--seed', default=444,
                       help='fix random seed',
@@ -133,14 +137,15 @@ def parse_args():
 
 
 def main():
-    wandb.init(project="mimic classify")
-    opt = Cfgs()
-    wandb.config = {
-          "learning_rate": opt.lr_base,
-          "epochs": opt.max_epoch,
-          "batch_size": opt.batch_size,
-          }
+#     wandb.init(project="mimic classify")
+    
+#     wandb.config = {
+#           "learning_rate": opt.lr_base,
+#           "epochs": opt.max_epoch,
+#           "batch_size": opt.batch_size,
+#           }
 
+    opt = Cfgs()
     args = parse_args()
     args_dict = opt.parse_to_dict(args)
 

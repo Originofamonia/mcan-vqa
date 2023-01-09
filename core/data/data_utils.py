@@ -6,7 +6,7 @@
 
 from core.data.ans_punct import prep_ans
 import numpy as np
-import en_vectors_web_lg, random, re, json
+import spacy, random, re, json
 
 
 def shuffle_list(ans_list):
@@ -59,7 +59,8 @@ def tokenize(stat_ques_list, use_glove):
     spacy_tool = None
     pretrained_emb = []
     if use_glove:
-        spacy_tool = en_vectors_web_lg.load()
+        # spacy_tool = en_vectors_web_lg.load()
+        spacy_tool = spacy.load('en_core_web_lg')
         pretrained_emb.append(spacy_tool('PAD').vector)
         pretrained_emb.append(spacy_tool('UNK').vector)
 

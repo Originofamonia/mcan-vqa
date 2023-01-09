@@ -37,7 +37,7 @@ class WarmupOptimizer(object):
         if step is None:
             step = self._step
 
-        if step <= int(self.data_size / self.batch_size * 1):
+        if step <= int(self.data_size / self.batch_size * 1):  # was 1, 2, 3
             r = self.lr_base * 0.25  # was 0.25
         elif step <= int(self.data_size / self.batch_size * 2):
             r = self.lr_base * 0.5

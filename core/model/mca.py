@@ -176,7 +176,7 @@ class MCA_ED(nn.Module):
         self.dec_list = nn.ModuleList([SGA(opt) for _ in range(opt.layer)])
 
     def forward(self, x, y, x_mask, y_mask):
-        # Get hidden vector
+        # Get hidden vector; x is q, y is v
         for enc in self.enc_list:
             x = enc(x, x_mask)
 

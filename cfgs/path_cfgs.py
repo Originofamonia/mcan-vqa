@@ -32,7 +32,7 @@ class PATH:
         self.ana_pool_finding_path = f'/home/xinyue/faster-rcnn/output/mimic_box_coords/bbox_disease_features_by_coords.hdf5'
 
         self.mimic_qa_path = {
-            'train': self.cxr_data_path + 'dataset_train_full.pkl',
+            'train': self.cxr_data_path + 'dataset_train_full.pkl', # 'dataset_train_full.pkl'
             'val': self.cxr_data_path + 'dataset_val_full.pkl',
             'test': self.cxr_data_path + 'dataset_test_full.pkl',
         }

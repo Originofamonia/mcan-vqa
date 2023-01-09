@@ -93,7 +93,7 @@ class Cfgs(PATH):
         self.img_feat_size = 1024  # was 2048
 
         # Default training batch size: 64
-        self.batch_size = 256
+        self.batch_size = 64
 
         # Multi-thread I/O
         self.num_workers = 4
@@ -119,11 +119,11 @@ class Cfgs(PATH):
 
         # Model deeps
         # (Encoder and Decoder will be same deeps)
-        self.layer = 6
+        self.layer = 4  # only 6 is best, 8 is bad
 
         # Model hidden size
         # (512 as default, bigger will be a sharp increase of gpu memory usage)
-        self.hidden_size = 512
+        self.hidden_size = 512  # was 512 for att pooling
 
         # Multi-head number in MCA layers
         # (Warning: HIDDEN_SIZE should be divided by MULTI_HEAD)
@@ -131,34 +131,34 @@ class Cfgs(PATH):
 
         # Dropout rate for all dropout layers
         # (dropout can prevent overfitting： [Dropout: a simple way to prevent neural networks from overfitting])
-        self.dropout_rate = 0.3
+        self.dropout_rate = 0.1
 
         # MLP size in flatten layers
         self.flat_mlp_size = 512
 
         # Flatten the last hidden to vector with {n} attention glimpses
         self.flat_glimpses = 1
-        self.flat_out_size = 512  # was 1024
+        self.flat_out_size = 1024  # was 1024
 
         # --------------------------
         # ---- Optimizer Params ----
         # --------------------------
 
         # The base learning rate
-        self.lr_base = 1e-5  # vit is 3e-5
+        self.lr_base = 1e-4  # vit is 3e-5
 
         # Learning rate decay ratio
         self.lr_decay_rate = 0.2
 
         # Learning rate decay at {x, y, z...} epoch
-        self.lr_decay_list = [10, 20]
+        self.lr_decay_list = [10, 12]
 
         # Max training epoch
-        self.max_epoch = 30
+        self.max_epoch = 13
 
         # Gradient clip
         # (default: -1 means not using)
-        self.grad_norm_clip = 0.3
+        self.grad_norm_clip = -1
 
         # Adam optimizer betas and eps
         self.opt_betas = (0.9, 0.98)
@@ -187,9 +187,9 @@ class Cfgs(PATH):
         assert self.run_mode in ['train', 'val', 'test']
 
         # ------------ Devices setup
-        os.environ['CUDA_VISIBLE_DEVICES'] = self.gpu
-        self.n_gpu = len(self.gpu.split(','))
-        self.devices = [_ for _ in range(self.n_gpu)]
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(self.gpu)
+        self.n_gpu = len(str(self.gpu).split(','))
+        # self.devices = [_ for _ in range(self.n_gpu)]
         # torch.set_num_threads(2)
 
         # ------------ Seed setup

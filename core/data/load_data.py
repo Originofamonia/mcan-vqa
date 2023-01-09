@@ -3,11 +3,13 @@
 # Licensed under The MIT License [see LICENSE for details]
 # Written by Yuhao Cui https://github.com/cuiyuhao1996
 # --------------------------------------------------------
+import os
 import h5py
 import pickle
 import random
 import numpy as np
 from numpy.random import default_rng
+from sklearn.preprocessing import normalize
 import pandas as pd
 import glob, json, torch, time
 from torch.utils.data import Dataset, DataLoader
@@ -197,9 +199,12 @@ class MIMICDatasetSplit(MIMICDatasetBase):
     def __init__(self, opt) -> None:
         super().__init__(opt)
         with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
-            self.qa = pickle.load(f2)  # qa pairs
-        # if opt.run_mode == 'train':
-        #     self.qa = random.sample(self.qa, 20000)
+            self.qa = pickle.load(f2)  # qa pairs, before: [508543]
+            self.qa = np.array(self.qa)
+        if opt.run_mode == 'train':
+            with open(os.path.join(os.getcwd(), f'datasets/filtered_qa_indices.pkl'), 'rb') as f3:
+                self.train_indices = pickle.load(f3)
+                self.qa = self.qa[self.train_indices]
         self.token_to_ix, self.pretrained_emb = tokenize(self.qa, opt.use_glove)
         self.token_size = self.token_to_ix.__len__()
         self.data_size = self.qa.__len__()
@@ -215,7 +220,7 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         # study_id = int(qa['study_id'][:-2])
         # multi_label = (self.chexpert_df[(self.chexpert_df['study_id']==study_id) & (self.chexpert_df['subject_id']==subject_id)] > 0).values
         # multi_label = multi_label[0][2:].astype('float32')
-        
+
         # Process question
         ques_ix_iter = proc_ques(qa, self.token_to_ix, self.opt.max_token)
         # Process answer
@@ -224,13 +229,14 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         if self.opt.run_mode in ['train']:
             # randomly dropout some dim of features
             rand_dim = np.random.choice(np.arange(self.v_dim), replace=False,
-                           size=int(self.v_dim * 0.2))
+                           size=int(self.v_dim * 0.3))
             img_feats = np.copy(self.image_features[qa['image']])  # must, or can't dropout
-            img_feats[:, rand_dim] = 0
+            normed_img_feat = normalize(img_feats, axis=1)  # try normalize v
+            normed_img_feat[:, rand_dim] = 0
             # img_feats = np.array(self.image_features[qa['image']])
             # ana_find_feats = np.array(self.ana_pooled_feats[qa['image']])
             # img_feats = ana_find_feats
-            img_feat_iter = pad_img_feat(img_feats, self.opt.img_feat_pad_size)
+            img_feat_iter = pad_img_feat(normed_img_feat, self.opt.img_feat_pad_size)
 
             # return torch.from_numpy(img_feat_iter), \
             #    torch.from_numpy(ques_ix_iter), torch.from_numpy(ans_iter), \
