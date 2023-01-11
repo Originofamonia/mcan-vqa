@@ -30,7 +30,7 @@ def parse_args():
 
     parser.add_argument('--model', dest='model',
                       choices=['small', 'large'],
-                      default='large', type=str)
+                      default='small', type=str)
 
     parser.add_argument('--split', dest='train_split',
                       choices=['train', 'train+val', 'train+val+vg'],
@@ -57,7 +57,7 @@ def parse_args():
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=64,  # was 64
+    parser.add_argument('--batch_size', default=128,  # was 64
                       help='batch size during training',
                       type=int)
 
@@ -65,7 +65,7 @@ def parse_args():
                       help='max training epoch',
                       type=int)
 
-    parser.add_argument('--reg_factor', default=0, # cuz the main loss is ~200
+    parser.add_argument('--reg_factor', default=0, # the main loss is ~200, was 1e-5
                       help='strength of SmoothL1Loss for regularization',
                       type=float)
 
@@ -137,14 +137,6 @@ def parse_args():
 
 
 def main():
-#     wandb.init(project="mimic classify")
-    
-#     wandb.config = {
-#           "learning_rate": opt.lr_base,
-#           "epochs": opt.max_epoch,
-#           "batch_size": opt.batch_size,
-#           }
-
     opt = Cfgs()
     args = parse_args()
     args_dict = opt.parse_to_dict(args)
@@ -156,11 +148,25 @@ def main():
     args_dict = {**yaml_dict, **args_dict}
     opt.add_args(args_dict)
     opt.proc()
+    opt.check_mimic_path()
 
+    sweep_config = {
+       'method': 'grid',
+       'parameters': {
+           'layer': {
+               'values': [3,4,6]
+           },
+           'lr_base':{
+               'values': [5e-4,1e-4,5e-6]
+           }
+       }
+    }
+    sweep_id = wandb.sweep(sweep_config)
+
+    wandb.init(project="mimic classify")
+    wandb.config = opt.parse_to_dict(opt)
     print('Hyper Parameters:')
     print(opt)
-
-    opt.check_mimic_path()
 
     execution = ExecuteMIMIC(opt)
     execution.run(opt.run_mode)  # train
@@ -168,6 +174,7 @@ def main():
     execution.run(opt.run_mode)
     setattr(opt, 'run_mode', 'test')
     execution.run(opt.run_mode)
+    
 
 
 if __name__ == '__main__':

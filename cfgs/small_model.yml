@@ -5,7 +5,8 @@ dropout_rate: 0.1
 flat_mlp_size: 512
 flat_glimpses: 1
 flat_out_size: 512
-lr_base: 0.0001
+lr_base: 1e-4
+# was lr_base: 0.0001
 lr_decay_rate: 0.2
 grad_accu_steps: 1
 ckpt_version: 'small'

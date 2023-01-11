@@ -201,10 +201,10 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
             self.qa = pickle.load(f2)  # qa pairs, before: [508543]
             self.qa = np.array(self.qa)
-        if opt.run_mode == 'train':
-            with open(os.path.join(os.getcwd(), f'datasets/filtered_qa_indices.pkl'), 'rb') as f3:
-                self.train_indices = pickle.load(f3)
-                self.qa = self.qa[self.train_indices]
+        # if opt.run_mode == 'train': bad, even lowers evaluate on training set
+        #     with open(os.path.join(os.getcwd(), f'datasets/filtered_qa_indices.pkl'), 'rb') as f3:
+        #         self.train_indices = pickle.load(f3)
+        #         self.qa = self.qa[self.train_indices]
         self.token_to_ix, self.pretrained_emb = tokenize(self.qa, opt.use_glove)
         self.token_size = self.token_to_ix.__len__()
         self.data_size = self.qa.__len__()
@@ -229,7 +229,7 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         if self.opt.run_mode in ['train']:
             # randomly dropout some dim of features
             rand_dim = np.random.choice(np.arange(self.v_dim), replace=False,
-                           size=int(self.v_dim * 0.3))
+                           size=int(self.v_dim * 0.5))
             img_feats = np.copy(self.image_features[qa['image']])  # must, or can't dropout
             normed_img_feat = normalize(img_feats, axis=1)  # try normalize v
             normed_img_feat[:, rand_dim] = 0

@@ -50,7 +50,7 @@ def main2():
     train_file = '/home/xinyue/VQA_ReGat/data/mimic/mimic_dataset_train_full.pkl'
     with open(train_file, 'rb') as f:
         qa = pickle.load(f)  # [508543]
-        max_count = 1000
+        max_count = 1999
         per_class_dict = defaultdict(list) # {class: list of indices}
         
         for i, example in enumerate(qa):

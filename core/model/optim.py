@@ -38,13 +38,13 @@ class WarmupOptimizer(object):
             step = self._step
 
         if step <= int(self.data_size / self.batch_size * 1):  # was 1, 2, 3
-            r = self.lr_base * 0.25  # was 0.25
+            r = float(self.lr_base) * 0.25  # was 0.25
         elif step <= int(self.data_size / self.batch_size * 2):
-            r = self.lr_base * 0.5
+            r = float(self.lr_base) * 0.5
         elif step <= int(self.data_size / self.batch_size * 3):
-            r = self.lr_base * 0.75
+            r = float(self.lr_base) * 0.75
         else:
-            r = self.lr_base
+            r = float(self.lr_base)
 
         return r
 
@@ -68,7 +68,7 @@ def get_optim(opt, model, data_size, lr_base=None):
 
 
 def adjust_lr(optim, decay_r):
-    optim.lr_base *= decay_r
+    optim.lr_base = decay_r * float(optim.lr_base)
 
 
 def adjust_reg_factor(factor, decay_r):

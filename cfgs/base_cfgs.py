@@ -151,7 +151,7 @@ class Cfgs(PATH):
         self.lr_decay_rate = 0.2
 
         # Learning rate decay at {x, y, z...} epoch
-        self.lr_decay_list = [10, 12]
+        self.lr_decay_list = [8, 12]
 
         # Max training epoch
         self.max_epoch = 13

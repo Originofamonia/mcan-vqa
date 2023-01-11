@@ -615,18 +615,18 @@ class ExecuteMIMIC(Execution):
                               f"main_loss: {main_loss.item():.3f}, lr: {optim._rate:.2e}"
                         pbar.set_description(descr)
 
-                    if step % self.opt.eval_interval == 1:
+                    # if step % self.opt.eval_interval == 1:
                         
-                        # Eval after every epoch
-                        if self.dataset_test is not None:
-                            # tentatively eval on train set?
-                            perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
-                            logfile.write(f'step: {step}; ' + 
-                                f"perclass_roc: {perclass_roc};\n" +
-                                f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
-                            )
-                            # wandb.log({'main_loss': main_loss.item(), 'test macro roc': macro_roc})
-                        self.model.train()
+                    #     # Eval after every epoch
+                    #     if self.dataset_test is not None:
+                    #         # tentatively eval on train set?
+                    #         perclass_roc, micro_roc, macro_roc = self.eval(self.dataset_test,)
+                    #         logfile.write(f'step: {step}; ' + 
+                    #             f"perclass_roc: {perclass_roc};\n" +
+                    #             f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
+                    #         )
+                            
+                    #     self.model.train()
 
                 # Gradient norm clipping
                 if self.opt.grad_norm_clip > 0:
@@ -674,7 +674,7 @@ class ExecuteMIMIC(Execution):
                     f"test perclass_roc: {perclass_roc};\n" +
                     f"micro_roc: {micro_roc:.3f}; macro roc: {macro_roc:.3f}.\n"
                 )
-                # wandb.log({'test macro roc': macro_roc})
+                wandb.log({'main_loss': main_loss.item(), 'test macro roc': macro_roc})
 
             grad_norm = np.zeros(len(named_params))
 
