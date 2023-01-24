@@ -178,7 +178,8 @@ class MIMICDatasetBase(Dataset):
         # anatomical box pooled findings feature
         self.ana_pooled_feats = f5['image_features']  # [377k, 26, 1024]
 
-        self.v_dim = self.ana_pooled_feats.chunks[-1]  # visual feat dim
+        self.v_dim = self.image_features.chunks[-1]  # visual feat dim
+        self.vn_dim = self.image_features.chunks[-2]  # num of visual features
         self.s_dim = self.spatial_features.chunks[-1]  # spatial dim
 
         with open(opt.mimic_ans_dict_path['ans2idx'], 'rb') as f3:
@@ -200,7 +201,14 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         super().__init__(opt)
         with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
             self.qa = pickle.load(f2)  # qa pairs, before: [508543]
-            self.qa = np.array(self.qa)
+            if opt.run_mode == 'train':
+                with open(opt.mimic_qa_path['val'], 'rb') as f_val:
+                    self.qa_val = pickle.load(f_val)
+                    self.qa = self.qa + self.qa_val
+                with open(opt.mimic_qa_path['test'], 'rb') as f_test:
+                    self.qa_test = pickle.load(f_test)
+                    self.qa = self.qa + self.qa_test
+            # self.qa = np.array(self.qa)
         # if opt.run_mode == 'train': bad, even lowers evaluate on training set
         #     with open(os.path.join(os.getcwd(), f'datasets/filtered_qa_indices.pkl'), 'rb') as f3:
         #         self.train_indices = pickle.load(f3)
@@ -228,11 +236,11 @@ class MIMICDatasetSplit(MIMICDatasetBase):
 
         if self.opt.run_mode in ['train']:
             # randomly dropout some dim of features
-            rand_dim = np.random.choice(np.arange(self.v_dim), replace=False,
-                           size=int(self.v_dim * 0.5))
-            img_feats = np.copy(self.image_features[qa['image']])  # must, or can't dropout
+            rand_dim = np.random.choice(np.arange(self.vn_dim), replace=False,
+                           size=int(self.vn_dim * 0.3))
+            img_feats = np.copy(self.image_features[qa['image']])  # must, or can't dropout [60, 1024]
             normed_img_feat = normalize(img_feats, axis=1)  # try normalize v
-            normed_img_feat[:, rand_dim] = 0
+            normed_img_feat[rand_dim] = 0
             # img_feats = np.array(self.image_features[qa['image']])
             # ana_find_feats = np.array(self.ana_pooled_feats[qa['image']])
             # img_feats = ana_find_feats

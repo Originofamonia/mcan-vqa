@@ -746,9 +746,9 @@ class ExecuteMIMIC(Execution):
         perclass_roc = roc_auc_score(targets, preds, average=None)
         print(f'per class ROC: {perclass_roc}')
         micro_roc = roc_auc_score(targets, preds, average='micro')
-        print(f'micro ROC: {micro_roc:.3f}')
+        print(f'len={len(dataloader)}; micro ROC: {micro_roc:.3f}')
         macro_roc = roc_auc_score(targets, preds, average='macro')
-        print(f'macro ROC: {macro_roc:.3f}')
+        print(f'len={len(dataloader)}; macro ROC: {macro_roc:.3f}')
         return perclass_roc, micro_roc, macro_roc
 
 
