@@ -471,6 +471,8 @@ class ExecuteMIMIC(Execution):
             token_size,
             ans_size
         )
+        ckpt = torch.load('/drive/qiyuan/mcan-vqa/ckpt_444/epoch13.pt')
+        self.model.load_state_dict(ckpt['state_dict'])
         # self.model.cuda()
         self.model.to(self.opt.gpu)
         self.model.train()

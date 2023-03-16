@@ -63,7 +63,7 @@ def parse_args():
                            'to increase the I/O speed',
                       type=bool)
 
-    parser.add_argument('--gpu', default='0,1',
+    parser.add_argument('--gpu', default='1',
                       help="gpu select, eg.'0, 1, 2'",
                       type=str)
 

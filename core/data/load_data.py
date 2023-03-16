@@ -202,9 +202,9 @@ class MIMICDatasetSplit(MIMICDatasetBase):
         with open(opt.mimic_qa_path[opt.run_mode], 'rb') as f2:
             self.qa = pickle.load(f2)  # qa pairs, before: [508543]
             if opt.run_mode == 'train':
-                with open(opt.mimic_qa_path['val'], 'rb') as f_val:
-                    self.qa_val = pickle.load(f_val)
-                    self.qa = self.qa + self.qa_val
+                # with open(opt.mimic_qa_path['val'], 'rb') as f_val:
+                #     self.qa_val = pickle.load(f_val)
+                #     self.qa = self.qa + self.qa_val
                 with open(opt.mimic_qa_path['test'], 'rb') as f_test:
                     self.qa_test = pickle.load(f_test)
                     self.qa = self.qa + self.qa_test
