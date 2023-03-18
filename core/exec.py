@@ -49,7 +49,7 @@ class Execution:
         pretrained_emb = dataset.pretrained_emb
 
         # Define the MCAN model
-        self.model = Net(
+        self.model = Net2(
             self.opt,
             pretrained_emb,
             token_size,
@@ -172,7 +172,7 @@ class Execution:
                         ans_iter[accu_step * self.opt.sub_batch_size:
                                  (accu_step + 1) * self.opt.sub_batch_size]
 
-                    logits, _, _, _, _, _, _, _ = self.model(
+                    logits, _, _, _, _, = self.model(
                         sub_img_feat_iter, sub_ques_ix_iter)  # was sub_ques_ix_iter
 
                     loss = loss_fn(logits, sub_ans_iter)
@@ -358,12 +358,12 @@ class Execution:
             self.model.eval()
             net = self.model
         else:
-            net = Net(self.opt, pretrained_emb, token_size, ans_size)
+            net = Net2(self.opt, pretrained_emb, token_size, ans_size)
             net.cuda()
             net.eval()
             if self.opt.n_gpu > 1:
                 net = nn.DataParallel(net, device_ids=self.opt.devices)
-            path = f'/drive/qiyuan/mcan-vqackpt_50729920/epoch13.pkl'
+            path = f'/home/qiyuan/2022spring/mcan-vqa/ckpts/ckpt_444/epoch13.pkl'
             state_dict = torch.load(path)['state_dict']
             net.load_state_dict(state_dict)
 
@@ -414,7 +414,7 @@ class Execution:
             self.empty_log(self.opt.seed)
             self.train(self.dataset, self.dataset_eval)
         elif run_mode == 'val':
-            self.eval(self.dataset, valid=True)
+            self.eval(self.dataset,)
             # self.visualize(self.dataset, valid=True)
         elif run_mode == 'test':
             self.eval(self.dataset)

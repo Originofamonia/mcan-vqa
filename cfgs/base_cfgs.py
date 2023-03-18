@@ -18,7 +18,7 @@ class Cfgs(PATH):
 
         # Set Devices
         # If use multi-gpu training, set e.g.'0, 1, 2' instead
-        self.gpu = '0,1'
+        self.gpu = '1'
 
         # Set RNG For CPU And GPUs
         self.seed = 444
@@ -39,7 +39,7 @@ class Cfgs(PATH):
         self.ckpt_epoch = 0
 
         # Absolutely checkpoint path, 'CKPT_VERSION' and 'CKPT_EPOCH' will be overridden
-        self.ckpt_path = '/drive/qiyuan/mcan-vqa/'
+        self.ckpt_path = '/home/qiyuan/2022spring/mcan-vqa/ckpts/'
 
         # Print loss every step
         self.verbose = True
@@ -49,7 +49,7 @@ class Cfgs(PATH):
         # ------------------------------
 
         # {'train', 'val', 'test'}
-        self.run_mode = 'train'
+        self.run_mode = 'test'
 
         # Set True to evaluate offline
         self.eval_every_epoch = True
@@ -90,7 +90,7 @@ class Cfgs(PATH):
         self.img_feat_pad_size = 60
 
         # Faster-rcnn 2048D features
-        self.img_feat_size = 1024  # was 2048
+        self.img_feat_size = 2048  # was 2048
 
         # Default training batch size: 64
         self.batch_size = 64
@@ -123,7 +123,7 @@ class Cfgs(PATH):
 
         # Model hidden size
         # (512 as default, bigger will be a sharp increase of gpu memory usage)
-        self.hidden_size = 512  # was 512 for att pooling
+        self.hidden_size = 512  # was 1024
 
         # Multi-head number in MCA layers
         # (Warning: HIDDEN_SIZE should be divided by MULTI_HEAD)

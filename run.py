@@ -30,6 +30,7 @@ def parse_args():
                       default='small', type=str)
 
     parser.add_argument('--split', dest='train_split',
+                        default='train+val',
                       choices=['train', 'train+val', 'train+val+vg'],
                       help="set training split, "
                            "eg.'train', 'train+val+vg'"
@@ -50,7 +51,7 @@ def parse_args():
                            '(only work in testing)',
                       type=bool)
 
-    parser.add_argument('--batch_size', default=1,  # was 256
+    parser.add_argument('--batch_size', default=256,  # was 256
                       help='batch size during training',
                       type=int)
 
@@ -142,6 +143,8 @@ def main():
     opt.check_path()
 
     execution = Execution(opt)
+    execution.run(opt.run_mode)
+    setattr(opt, 'run_mode', 'val')
     execution.run(opt.run_mode)
 
 

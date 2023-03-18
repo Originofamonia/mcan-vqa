@@ -125,7 +125,7 @@ class CustomDataset(Dataset):
             ans_iter = proc_ans(ans, self.ans_to_ix)
             return torch.from_numpy(img_feat_iter), \
                torch.from_numpy(ques_ix_iter), \
-               torch.from_numpy(ans_iter), torch.from_numpy(boxes), torch.tensor([idx]), self.opt.run_mode
+               torch.from_numpy(ans_iter), torch.tensor([idx])
 
         else:
             # Load the run data from list

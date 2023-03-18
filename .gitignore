@@ -9,3 +9,4 @@ results/*
 utils/__pycache__/*
 .vscode
 wandb
+log_run*
